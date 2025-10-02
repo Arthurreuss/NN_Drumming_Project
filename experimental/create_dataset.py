@@ -1,5 +1,5 @@
 import numpy as np
-from expirimental.read_midi import Read_midi
+from experimental.read_midi import Read_midi
 
 # Map MIDI pitches to simplified drum classes
 DRUM_MAP = {

@@ -6,3 +6,4 @@
 e-gmd-v1.0.0/
 .DS_Store
 *__pycache__/
+*.mid
