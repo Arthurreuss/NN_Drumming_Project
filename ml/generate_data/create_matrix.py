@@ -1,5 +1,5 @@
 import numpy as np
-from expirimental.read_midi import Read_midi
+from ml.generate_data.read_midi import Read_midi
 import os
 import matplotlib.pyplot as plt
 
