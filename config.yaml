@@ -1,0 +1,12 @@
+# ===============================
+# dataset Configuration
+# ===============================
+
+dataset:
+  generate: true
+  show_plot: true 
+  quantization: 8
+  beats_per_bar: 4
+  normalize_velocity: true
+
+
