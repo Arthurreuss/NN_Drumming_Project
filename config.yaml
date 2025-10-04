@@ -5,7 +5,7 @@
 dataset:
   generate: true
   show_plot: true 
-  quantization: 8
+  quantization: 8 # final should be 16 or 32
   beats_per_bar: 4
   normalize_velocity: true
 
