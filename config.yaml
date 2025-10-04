@@ -3,10 +3,18 @@
 # ===============================
 
 dataset:
-  generate: true
-  show_plot: true 
   quantization: 8 # final should be 16 or 32
-  beats_per_bar: 4
-  normalize_velocity: true
+  inlcude_genre: false
+  genres:
+    - funk
+    - rock
+    - jazz
+    - latin
+    - pop
+    - hiphop
+    - electronic
+    - metal
+    - reggae
+
 
 
