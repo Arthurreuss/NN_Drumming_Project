@@ -1,88 +1,136 @@
+import random
 import re
+from collections import defaultdict
 from pathlib import Path
 
 import numpy as np
 from ml.data.midi import Midi
+from sympy import im
+from tqdm import tqdm
+from utils.cfg import load_config
 
 
-def _extract_metadata(midi_path):
-    """
-    Extract genre and bpm from E-GMD filename patterns such as:
-    1_funk-groove1_138_beat_4-4_1.midi
-    """
-    name = Path(midi_path).stem
+def _extract_metadata(midi_path: Path):
+    name = midi_path.stem
     m = re.match(r"\d+_([a-zA-Z]+)-.*_(\d+)_beat.*", name)
     if m:
-        genre = m.group(1).lower()
-        bpm = int(m.group(2))
-    else:
-        genre, bpm = "unknown", -1
-    return genre, bpm
+        return m.group(1).lower(), int(m.group(2))
+    return "unknown", -1
 
 
-def _simplify_matrix(mat):
-    """
-    Convert full 128-pitch matrix to 9 canonical drum instruments.
-    Groups ranges of pitches per instrument.
-    Output: (timesteps, 9) float matrix in [0, 1].
-    """
-
-    # General MIDI Drum Map ranges
-    pitch_groups = {
-        "kick": [35, 36],
-        "snare": [38, 40],
-        "hh_closed": [42, 44],
-        "hh_open": [46],
-        "tom_low": [41, 43],
-        "tom_mid": [45, 47],
-        "tom_high": [48, 50],
-        "crash": [49, 57],
-        "ride": [51, 59],
-    }
-
+def _simplify_matrix(mat: np.ndarray, pitch_groups: dict[str, list[int]]):
     out = np.zeros((mat.shape[0], 9), dtype=np.float32)
-    for idx, (_, pitches) in enumerate(pitch_groups.items()):
-        for p in pitches:
+    for idx, key in enumerate(pitch_groups):  # rely on YAML key order
+        for p in pitch_groups[key]:
             if p < mat.shape[1]:
                 out[:, idx] = np.maximum(out[:, idx], mat[:, p])
-
-    # normalize 0–1
     out /= 127.0
     return out
 
 
-def preprocess_dataset(midi_dir, save_dir, quantization=32, segment_len=128):
+def _trim_trailing_zeros_full_segments(mat: np.ndarray, segment_len: int):
+    """Trim to last nonzero, then floor to full segment multiple."""
+    nz = np.any(mat > 0, axis=1)
+    if not nz.any():
+        return mat[:0]
+    last_idx = np.where(nz)[0][-1] + 1  # make it a length
+    trimmed_len = (last_idx // segment_len) * segment_len
+    return mat[:trimmed_len]
+
+
+def preprocess_dataset():
     """
-    Convert all MIDI files under midi_dir to .npz segments stored in save_dir.
-    Each .npz contains X (timesteps×9), genre (string), bpm (int).
+    Build a balanced dataset of fixed-length drum segments from MIDI files.
+
+    Steps:
+      1) Load config: pitch_groups, genres, total_target, paths, quantization, segment_len, max_samples_per_file.
+      2) Init MIDI reader and output dirs: {save_dir}/q_{quantization}/seg_{segment_len}/<genre>/.
+      3) Discover and shuffle .mid/.midi files with a fixed seed.
+      4) For each file (until per-genre quota is met):
+         - Extract (genre, bpm); skip if not allowed or quota reached.
+         - Read tracks; for each track: simplify → trim → make non-overlapping starts → shuffle.
+         - Save up to min(remaining genre quota, max_samples_per_file) segments as .npz with fields:
+           X (float32, shape [segment_len, 9]), genre (str), bpm (int).
+      5) Stop when all genres hit their quota; print per-genre counts.
+
+    I/O:
+      - Reads config and MIDI under cfg['raw_data_dir'].
+      - Writes .npz segments under cfg['preprocessed_data_dir'] grouped by genre.
+
+    Guarantees:
+      - Even per-genre cap (total_target / |genres|).
+      - No partial tail segments.
+      - Values normalized to [0, 1].
+
+    Note:
+      - Create train/val/test splits later by song to avoid leakage.
     """
+    cfg = load_config("config.yaml")["dataset"]
+    pitch_groups = cfg["pitch_groups"]
+    genres_cfg = cfg["genres"]
+    total_target = cfg["total_target"]
+    midi_dir = cfg["raw_data_dir"]
+    save_dir = cfg["preprocessed_data_dir"]
+    quantization = cfg["quantization"]
+    segment_len = cfg["segment_len"]
+    max_samples_per_file = cfg["max_samples_per_file"]
+
+    genres = set(genres_cfg)
+    samples_per_genre = total_target // len(genres)
+
     reader = Midi(quantization=quantization)
     midi_dir = Path(midi_dir)
-    save_dir = Path(save_dir)
-    save_dir.mkdir(parents=True, exist_ok=True)
+    out_root = Path(save_dir) / f"q_{quantization}" / f"seg_{segment_len}"
+    out_root.mkdir(parents=True, exist_ok=True)
 
-    for i, midi_path in enumerate(midi_dir.rglob("*.midi")):
-        if i >= 100:  # stop after 100 files
-            break
+    midi_files = list(midi_dir.rglob("*.mid")) + list(midi_dir.rglob("*.midi"))
+    rng = random.Random(42)
+    rng.shuffle(midi_files)
 
+    counts = defaultdict(int)
+    saved = 0
+    pbar = tqdm(total=total_target, desc="Saved samples", unit="seg")
+
+    for midi_path in midi_files:
         genre, bpm = _extract_metadata(midi_path)
-        genre_dir = save_dir / genre
-        genre_dir.mkdir(exist_ok=True)
+        if genre not in genres or counts[genre] >= samples_per_genre:
+            continue
 
         tracks = reader.read_file(str(midi_path))
-        for name, data in tracks.items():
-            mat = data["drum_matrix"]
-            mat = _simplify_matrix(mat)
+        if not tracks:
+            continue
 
-            # Split into fixed-length segments
+        for name, mat in tracks.items():
+            mat = _simplify_matrix(mat, pitch_groups)
+            mat = _trim_trailing_zeros_full_segments(mat, segment_len)
             n_steps = mat.shape[0]
-            for i in range(0, n_steps - segment_len + 1, segment_len):
-                seg = mat[i : i + segment_len]
-                out_path = genre_dir / f"{midi_path.stem}_{name}_bpm{bpm}_seg{i}.npz"
+            if n_steps < segment_len:
+                continue
+
+            # non-overlapping random order
+            starts = np.arange(0, n_steps - segment_len + 1, segment_len)
+            np.random.shuffle(starts)
+
+            genre_dir = out_root / genre
+            genre_dir.mkdir(exist_ok=True)
+
+            picks = 0
+            for s in starts:
+                if counts[genre] >= samples_per_genre or picks >= max_samples_per_file:
+                    break
+                seg = mat[s : s + segment_len]
+                out_path = genre_dir / f"{midi_path.stem}_{name}_bpm{bpm}_seg{s}.npz"
                 np.savez(out_path, X=seg, genre=genre, bpm=bpm)
+                counts[genre] += 1
+                picks += 1
+                saved += 1
+                pbar.update(1)
 
+        # stop early if all genre quotas hit
+        if all(counts[g] >= samples_per_genre for g in genres):
+            print(f"Reached target of {total_target} samples. Stopping.")
+            break
 
-if __name__ == "__main__":
-    input_dir = "dataset/e-gmd-v1.0.0"
-    output_dir = "dataset/preprocessed"
-    preprocess_dataset(input_dir, output_dir, 16)
+    print("Final counts per genre:")
+    for g in sorted(genres):
+        print(f"{g}: {counts[g]}")

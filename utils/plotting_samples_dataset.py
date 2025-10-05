@@ -1,5 +1,3 @@
-from xml.etree.ElementInclude import include
-
 import matplotlib.pyplot as plt
 import numpy as np
 from ml.data.dataset import DrumDataset
@@ -18,7 +16,6 @@ def plot_drum_sample(dataset, index=0, include_genre=True):
         X_out = X_out.numpy()
 
         num_features = X_in.shape[1]
-        num_genres = len(dataset.genres)
         base_instruments = [
             "Kick",
             "Snare",
@@ -85,11 +82,11 @@ def plot_drum_sample(dataset, index=0, include_genre=True):
 
 
 if __name__ == "__main__":
-    data_dir = "dataset/preprocessed"
+    data_dir = "dataset/processed"
     config_path = "config.yaml"
 
     dataset = DrumDataset(data_dir, config_path, include_genre=False)
-    X_in, X_out = dataset[0]
+    X_in, X_out = dataset[-2]
 
     print("Input shape:", X_in.shape)
     print("Output shape:", X_out.shape)

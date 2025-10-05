@@ -11,8 +11,8 @@ class Midi:
         self._quantization = quantization
         self._pitch_dim = 128  # pitch dimension
         self._total_ticks = None  # length in MIDI ticks
-        self._total_timesteps = None  # time steps in quantized drum matrix
-        self.tracks = {}  # drum matrices for each track
+        self._total_timesteps = None  # time steps in quantized pianoroll matrix
+        self.tracks = {}  # pianoroll matrices for each track
         self._notes_on_temp = []
         self._unnamed_tracks = 0
 
@@ -45,11 +45,11 @@ class Midi:
             (self._total_ticks / ticks_per_beat) * self._quantization
         )
 
-    def _add_note_to_drum_matrix(self, note_off, track_name):
+    def _add_note_to_pianoroll_matrix(self, note_off, track_name):
         pitch_off, _, timestep_off = note_off
         for idx, (pitch_on, velocity_on, timestep_on) in enumerate(self._notes_on_temp):
             if pitch_on == pitch_off:
-                self.tracks[track_name]["drum_matrix"][
+                self.tracks[track_name][
                     timestep_on:timestep_off, pitch_on
                 ] = velocity_on
 
@@ -68,12 +68,9 @@ class Midi:
             if name == "":
                 name = f"unnamed_{self._unnamed_tracks}"
                 self._unnamed_tracks += 1
-            self.tracks[name] = {
-                "drum_matrix": np.zeros(
-                    [self._total_timesteps, self._pitch_dim], dtype=np.int16
-                ),
-                "genre": None,  # todo
-            }
+            self.tracks[name] = np.zeros(
+                [self._total_timesteps, self._pitch_dim], dtype=np.int16
+            )
 
             abs_ticks = 0
             for message in track:
@@ -85,15 +82,18 @@ class Midi:
                     if velocity > 0:
                         self._notes_on_temp.append((pitch, velocity, timestep))
                     else:
-                        self._add_note_to_drum_matrix((pitch, 0, timestep), name)
+                        self._add_note_to_pianoroll_matrix((pitch, 0, timestep), name)
 
                 elif message.type == "note_off":
                     pitch, velocity = message.note, message.velocity
-                    self._add_note_to_drum_matrix((pitch, velocity, timestep), name)
-            if np.count_nonzero(self.tracks[name]["drum_matrix"]) == 0:
+                    self._add_note_to_pianoroll_matrix(
+                        (pitch, velocity, timestep), name
+                    )
+            if np.count_nonzero(self.tracks[name]) == 0:
                 del self.tracks[name]
         return self.tracks
 
-    def create_midi(self, drum_matrix, output_path, tempo=100):
+    def create_midi(self, drumroll_matrix, output_path, tempo=100):
         # todo
+        # use _create_pianoroll_from_drumroll
         pass

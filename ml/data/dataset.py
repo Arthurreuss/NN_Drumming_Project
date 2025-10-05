@@ -18,8 +18,6 @@ class DrumDataset(Dataset):
         assert len(self.files) > 0, f"No .npz files found in {data_dir}"
 
         self.include_genre = include_genre
-
-        # Load genres from config.yaml
         with open(config_path, "r") as f:
             cfg = yaml.safe_load(f)
         self.genres = cfg.get("dataset", {}).get("genres", [])
@@ -34,14 +32,12 @@ class DrumDataset(Dataset):
         genre = data["genre"].item() if "genre" in data else "unknown"
         # bpm = int(data["bpm"]) if "bpm" in data else -1
 
-        # Optional genre one-hot encoding
         if self.include_genre and genre in self.genre_to_idx:
             onehot = torch.zeros(len(self.genres))
             onehot[self.genre_to_idx[genre]] = 1.0
             onehot = onehot.repeat(X.shape[0], 1)  # (T, num_genres)
             X = torch.cat([X, onehot], dim=1)  # (T, 9 + num_genres)
 
-        # Create shifted target
         X_in = X[:-1]
         X_out = X[1:]
         return X_in, X_out
