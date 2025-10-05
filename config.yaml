@@ -3,6 +3,7 @@
 # ===============================
 
 dataset:
+  seed: 42
   total_target: 220000 # total number of training samples
   raw_data_dir: dataset/e-gmd-v1.0.0
   preprocessed_data_dir: dataset/processed

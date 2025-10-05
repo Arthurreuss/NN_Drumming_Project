@@ -74,6 +74,7 @@ def preprocess_dataset():
     quantization = cfg["quantization"]
     segment_len = cfg["segment_len"]
     max_samples_per_file = cfg["max_samples_per_file"]
+    seed = cfg["seed"]
 
     genres = set(genres_cfg)
     samples_per_genre = total_target // len(genres)
@@ -84,7 +85,7 @@ def preprocess_dataset():
     out_root.mkdir(parents=True, exist_ok=True)
 
     midi_files = list(midi_dir.rglob("*.mid")) + list(midi_dir.rglob("*.midi"))
-    rng = random.Random(42)
+    rng = random.Random(seed)
     rng.shuffle(midi_files)
 
     counts = defaultdict(int)
