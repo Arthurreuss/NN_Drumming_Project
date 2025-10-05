@@ -120,7 +120,9 @@ def preprocess_dataset():
                 if counts[genre] >= samples_per_genre or picks >= max_samples_per_file:
                     break
                 seg = mat[s : s + segment_len]
-                out_path = genre_dir / f"{midi_path.stem}_{name}_bpm{bpm}_seg{s}.npz"
+                out_path = (
+                    genre_dir / f"{midi_path.stem}_{name}_bpm{bpm}_seg{s}_id{saved}.npz"
+                )
                 np.savez(out_path, X=seg, genre=genre, bpm=bpm)
                 counts[genre] += 1
                 picks += 1
