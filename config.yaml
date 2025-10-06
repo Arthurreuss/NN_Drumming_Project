@@ -3,10 +3,37 @@
 # ===============================
 
 dataset:
-  generate: true
-  show_plot: true 
-  quantization: 8
-  beats_per_bar: 4
-  normalize_velocity: true
+  seed: 42
+  total_target: 220000 # total number of training samples
+  raw_data_dir: dataset/e-gmd-v1.0.0
+  preprocessed_data_dir: dataset/processed
+  quantization: 16 # final should be 16 or 32
+  segment_len: 64
+  max_samples_per_file: 10
+  inlcude_genre: false
+  genres:
+    - afrocuban
+    - dance
+    - funk
+    - hiphop
+    - jazz
+    - latin
+    - neworleans
+    - pop
+    - reggae
+    - rock
+    - soul
+  pitch_groups:
+    kick: [35, 36]
+    snare: [38, 40]
+    hh_closed: [42, 44]
+    hh_open: [46]
+    tom_low: [41, 43]
+    tom_mid: [45, 47]
+    tom_high: [48, 50]
+    crash: [49, 57]
+    ride: [51, 59]
+
+
 
 
