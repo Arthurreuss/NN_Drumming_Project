@@ -7,3 +7,6 @@ class Pipeline:
 
     def preprocess_data(self):
         preprocess_dataset()
+
+    def train_model(self, training_plot: bool=True, TensorBoard: bool=False):
+        pass

@@ -8,3 +8,4 @@ e-gmd-v1.0.0/
 *__pycache__/
 *.mid
 *.npz
+__pycache__/
