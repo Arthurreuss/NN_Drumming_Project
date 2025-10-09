@@ -4,7 +4,7 @@
 
 dataset:
   seed: 42
-  total_target: 220000 # total number of training samples
+  total_target: 22000 # total number of training samples
   raw_data_dir: dataset/e-gmd-v1.0.0
   preprocessed_data_dir: dataset/processed
   quantization: 16 # final should be 16 or 32
@@ -34,6 +34,20 @@ dataset:
     crash: [49, 57]
     ride: [51, 59]
 
+# ===============================
+# Pipeline Configuration
+# ===============================
 
-
-
+pipeline:
+  model_name: "LSTM"    #Options : ["LSTM"]
+  dataset:
+    preprocess: True
+  train:
+    enabled: True
+    plot: True
+    tensor_board: True
+  evaluate:
+    enabled: True
+    plot: True
+  inference:
+    enabled: True
