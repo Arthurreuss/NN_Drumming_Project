@@ -7,6 +7,7 @@ dataset:
   total_target: 22000 # total number of training samples
   raw_data_dir: dataset/e-gmd-v1.0.0
   preprocessed_data_dir: dataset/processed
+  train_test_split: 0.8
   quantization: 16 # final should be 16 or 32
   segment_len: 64
   max_samples_per_file: 10

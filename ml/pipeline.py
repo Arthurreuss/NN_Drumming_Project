@@ -12,23 +12,26 @@ class Pipeline:
 
     def run(self):
         if self.pipeline_cfg['dataset'].get('preprocess', False):
-            dataset: DrumDataset = self.preprocess_data()
+            train_dataset, test_dataset = self.preprocess_data()
         else:
-            dataset: DrumDataset = self._load_dataset()
+            train_dataset, test_dataset = self._load_dataset()
         if self.pipeline_cfg['train'].get("enabled", False):
             plot = self.pipeline_cfg['train'].get("plot", False)
             tensor_board = self.pipeline_cfg['train'].get("tensor_board", False)
-            self.train_model
+            self.train_model(train_dataset, plot, tensor_board)
                 
         
 
-    def preprocess_data(self) -> DrumDataset:
+    def preprocess_data(self) -> tuple[DrumDataset, DrumDataset]:
         return preprocess_dataset()
 
     def train_model(self, Dataset: DrumDataset = None, training_plot: bool=True, TensorBoard: bool=False) -> Model:
         pass
 
-    def _load_dataset(self, train_test_split: float) -> DrumDataset:
+    def evaluate_model(self, Dataset: DrumDataset = None) -> dict:
+        pass
+
+    def _load_dataset(self, train_test_split: float) -> tuple[DrumDataset, DrumDataset]:
         pass
 
 

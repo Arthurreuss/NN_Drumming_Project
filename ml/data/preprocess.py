@@ -2,6 +2,7 @@ import random
 import re
 from collections import defaultdict
 from pathlib import Path
+from ml.data.dataset import DrumDataset
 
 import numpy as np
 from ml.data.midi import Midi
@@ -38,7 +39,7 @@ def _trim_trailing_zeros_full_segments(mat: np.ndarray, segment_len: int):
     return mat[:trimmed_len]
 
 
-def preprocess_dataset():
+def preprocess_dataset() -> tuple[DrumDataset, DrumDataset]:
     """
     Build a balanced dataset of fixed-length drum segments from MIDI files.
 
@@ -74,6 +75,7 @@ def preprocess_dataset():
     quantization = cfg["quantization"]
     segment_len = cfg["segment_len"]
     max_samples_per_file = cfg["max_samples_per_file"]
+    train_test_split = cfg["train_test_split"]
     seed = cfg["seed"]
 
     genres = set(genres_cfg)
@@ -82,15 +84,35 @@ def preprocess_dataset():
     reader = Midi(quantization=quantization)
     midi_dir = Path(midi_dir)
     out_root = Path(save_dir) / f"q_{quantization}" / f"seg_{segment_len}"
-    out_root.mkdir(parents=True, exist_ok=True)
+    train_dir = out_root / "train"
+    test_dir = out_root / "test"
+    train_dir.mkdir(parents=True, exist_ok=True)
+    test_dir.mkdir(parents=True, exist_ok=True)
 
     midi_files = list(midi_dir.rglob("*.mid")) + list(midi_dir.rglob("*.midi"))
     rng = random.Random(seed)
     rng.shuffle(midi_files)
 
+    train_midi_files = random.sample(midi_files, int(len(midi_files) * train_test_split))
+    test_midi_files = list(set(midi_files) - set(train_midi_files))
+
+    # Process train and test files separately
+    print("Processing training files...")
+    _process_midi_files(train_midi_files, train_dir, reader, genres, samples_per_genre, 
+                       total_target, pitch_groups, segment_len, max_samples_per_file)
+    
+    print("\nProcessing test files...")
+    _process_midi_files(test_midi_files, test_dir, reader, genres, samples_per_genre,
+                       total_target, pitch_groups, segment_len, max_samples_per_file)
+    return DrumDataset(train_dir, config_path="config.yaml", include_genre=True), DrumDataset(test_dir, config_path="config.yaml", include_genre=True)
+
+
+def _process_midi_files(midi_files, output_dir, reader, genres, samples_per_genre, 
+                       total_target, pitch_groups, segment_len, max_samples_per_file):
+    """Process MIDI files and save segments to the specified output directory."""
     counts = defaultdict(int)
     saved = 0
-    pbar = tqdm(total=total_target, desc="Saved samples", unit="seg")
+    pbar = tqdm(total=total_target, desc=f"Saved samples to {output_dir.name}", unit="seg")
 
     for midi_path in midi_files:
         genre, bpm = _extract_metadata(midi_path)
@@ -112,7 +134,7 @@ def preprocess_dataset():
             starts = np.arange(0, n_steps - segment_len + 1, segment_len)
             np.random.shuffle(starts)
 
-            genre_dir = out_root / genre
+            genre_dir = output_dir / genre
             genre_dir.mkdir(exist_ok=True)
 
             picks = 0
@@ -134,6 +156,7 @@ def preprocess_dataset():
             print(f"Reached target of {total_target} samples. Stopping.")
             break
 
-    print("Final counts per genre:")
+    pbar.close()
+    print(f"Final counts per genre in {output_dir.name}:")
     for g in sorted(genres):
-        print(f"{g}: {counts[g]}")
+        print(f"  {g}: {counts[g]}")

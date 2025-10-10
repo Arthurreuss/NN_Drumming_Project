@@ -11,7 +11,7 @@ from utils.cfg import load_config
 def main():
     cfg = load_config()
     pipeline = Pipeline(cfg)
-    pipeline.run()
+    pipeline.preprocess_data()
 
 
 if __name__ == "__main__":
