@@ -5,22 +5,16 @@ import torch
 import yaml
 from torch.utils.data import Dataset
 
+from utils.cfg import load_config
+
 
 class DrumDataset(Dataset):
-    def __init__(self, data_dir, config_path, include_genre=True):
-        """
-        Args:
-            data_dir (str): Directory containing .npz preprocessed files.
-            config_path (str): Path to config.yaml containing list of genres.
-            include_genre (bool): Whether to append one-hot genre encoding to X.
-        """
+    def __init__(self, data_dir, include_genre=True):
         self.files = list(Path(data_dir).rglob("*.npz"))
-        assert len(self.files) > 0, f"No .npz files found in {data_dir}"
-
+        assert self.files, f"No .npz files found in {data_dir}"
         self.include_genre = include_genre
-        with open(config_path, "r") as f:
-            cfg = yaml.safe_load(f)
-        self.genres = cfg.get("dataset", {}).get("genres", [])
+        cfg = load_config()
+        self.genres = cfg["dataset"]["genres"]
         self.genre_to_idx = {g: i for i, g in enumerate(self.genres)}
 
     def __len__(self):
@@ -28,16 +22,23 @@ class DrumDataset(Dataset):
 
     def __getitem__(self, idx):
         data = np.load(self.files[idx], allow_pickle=True)
-        X = torch.tensor(data["X"], dtype=torch.float32)  # (T, 9)
-        genre = data["genre"].item() if "genre" in data else "unknown"
-        # bpm = int(data["bpm"]) if "bpm" in data else -1
 
-        if self.include_genre and genre in self.genre_to_idx:
-            onehot = torch.zeros(len(self.genres))
-            onehot[self.genre_to_idx[genre]] = 1.0
-            onehot = onehot.repeat(X.shape[0], 1)  # (T, num_genres)
-            X = torch.cat([X, onehot], dim=1)  # (T, 9 + num_genres)
+        tokens = torch.tensor(data["tokens"], dtype=torch.long)  # (T,)
+        positions = torch.tensor(data["positions"], dtype=torch.long)  # (T,)
+        genre_val = data["genre"]
+        if isinstance(genre_val, bytes):  # npz may store as bytes
+            genre_val = genre_val.decode()
+        genre_id = self.genre_to_idx.get(str(genre_val), 0)
+        genre_id = torch.tensor(genre_id, dtype=torch.long)
 
-        X_in = X[:-1]
-        X_out = X[1:]
-        return X_in, X_out
+        # Inputs = tokens[:-1], Targets = tokens[1:]
+        X_in = tokens[:-1]
+        X_out = tokens[1:]
+        pos_in = positions[:-1]
+
+        return {
+            "tokens": X_in,
+            "positions": pos_in,
+            "genre_id": genre_id,
+            "targets": X_out,
+        }
