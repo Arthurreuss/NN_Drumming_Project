@@ -269,6 +269,8 @@ def preprocess_dataset() -> tuple[DrumDataset, DrumDataset]:
     print("Saving tokenizer vocabulary...")
     tokenizer.save()
 
-    return DrumDataset(train_dir, include_genre=True), DrumDataset(
-        test_dir, include_genre=True
+    return (
+        DrumDataset(train_dir, include_genre=True),
+        DrumDataset(test_dir, include_genre=True),
+        tokenizer,
     )

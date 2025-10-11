@@ -1,14 +1,7 @@
-import math
-import os
 import random
-from dataclasses import dataclass
 
-import numpy as np
 import torch
 import torch.nn as nn
-from torch.utils.data import DataLoader, random_split
-
-# ----------------------- Model -----------------------
 
 
 class Seq2SeqLSTM(nn.Module):
@@ -17,11 +10,11 @@ class Seq2SeqLSTM(nn.Module):
         vocab_size: int,
         pos_vocab_size: int,
         num_genres: int,
-        token_embed_dim: int = 128,
-        pos_embed_dim: int = 8,
-        genre_embed_dim: int = 8,
-        hidden: int = 256,
-        layers: int = 2,
+        token_embed_dim: int,
+        pos_embed_dim: int,
+        genre_embed_dim: int,
+        hidden: int,
+        layers: int,
         dropout: float = 0.1,
     ):
         super().__init__()
@@ -108,3 +101,36 @@ class Seq2SeqLSTM(nn.Module):
             prev_tok = logit.squeeze(1).argmax(-1)
             outputs.append(prev_tok.unsqueeze(1))
         return torch.cat(outputs, dim=1)  # (B,max_len)
+
+    @torch.no_grad()
+    def generate(
+        self,
+        prim_tokens,
+        prim_pos,
+        genre_id,
+        steps: int,
+        temperature: float = 1.0,
+        start_token_id: int = 1,
+    ):
+        """
+        prim_*: (1,T) tensors to build encoder context
+        returns (1, steps) token ids
+        """
+        self.eval()
+        h, c = self.encode(prim_tokens, prim_pos, genre_id)
+        B = prim_tokens.size(0)
+        prev = torch.full(
+            (B,), start_token_id, dtype=torch.long, device=prim_tokens.device
+        )
+        out_tokens = []
+        for t in range(steps):
+            pe = self.pos_emb((prim_pos[:, -1] + t) % self.pos_emb.num_embeddings)
+            g = self.genre_emb(genre_id)
+            te = self.token_emb(prev)
+            x = torch.cat([te, pe, g], dim=-1).unsqueeze(1)
+            y, (h, c) = self.decoder(x, (h, c))
+            logits = self.proj(y).squeeze(1) / max(1e-6, temperature)
+            probs = torch.softmax(logits, dim=-1)
+            prev = torch.multinomial(probs, num_samples=1).squeeze(1)
+            out_tokens.append(prev.unsqueeze(1))
+        return torch.cat(out_tokens, dim=1)

@@ -1,5 +1,5 @@
 # ===============================
-# dataset Configuration
+# Dataset Configuration
 # ===============================
 
 dataset:
@@ -37,19 +37,37 @@ dataset:
   loudness_ranges: [0.0, 0.2, 0.4, 0.6, 0.8, 1.0]
 
 # ===============================
+# Training Configuration
+# ===============================
+
+training:
+  batch_size: 256
+  epochs: 50
+  learning_rate: 0.0005
+  weight_decay: 0.0001
+  teacher_forcing_start: 0.9
+  teacher_forcing_end: 0.2
+  checkpoint_dir: "checkpoints"
+  checkpoint_interval: 5
+  train_dir: dataset/processed/q_16/seg_64/train
+  test_dir: dataset/processed/q_16/seg_64/test
+
+
+# ===============================
 # Pipeline Configuration
 # ===============================
 
 pipeline:
   model_name: "LSTM"    #Options : ["LSTM"]
-  dataset:
-    preprocess: True
-  train:
+  preprocess: False
+  train: True
+  tensor_board: True # ?
+  evaluate: True # ?
+  plot: True # ?
+  inference: 
     enabled: True
+    starting_sample: 0
+    generation_length: 64
+    temperature: 0.9
     plot: True
-    tensor_board: True
-  evaluate:
-    enabled: True
-    plot: True
-  inference:
-    enabled: True
+
