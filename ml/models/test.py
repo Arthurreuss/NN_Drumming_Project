@@ -1,125 +1,206 @@
-from re import T
+import math
+import os
+import token
+from dataclasses import dataclass
 
-import numpy as np
 import torch
-from ml.data.dataset import DrumDataset
-from ml.models.lstm import LSTMNextStep
+import torch.nn as nn
+from torch.utils.data import DataLoader
 
-DEVICE = torch.device(
-    "cuda"
-    if torch.cuda.is_available()
-    else "mps" if torch.backends.mps.is_available() else "cpu"
-)
-T = 63  # model trained on sequences of length 63
-F = 9  # model trained on features of size 9 (no genre)
+from ml.data.tokenizer import SimpleTokenizer
+from ml.models.lstm import Seq2SeqLSTM
+from utils.cfg import load_config
 
 
-# ---- Predict / Generate ----
+@dataclass
+class TrainConfig:
+    batch_size: int = 256
+    lr: float = 5e-4
+    weight_decay: float = 1e-4
+    epochs: int = 20
+    teacher_forcing_start: float = 0.9
+    teacher_forcing_end: float = 0.2
+
+
+def linear_tf(epoch, epochs, tf_start, tf_end):
+    a = (tf_end - tf_start) / max(1, epochs - 1)
+    return tf_start + a * epoch
+
+
+def train_epoch(model, loader, opt, crit, device, tf_ratio):
+    model.train()
+    total, n = 0.0, 0
+    for batch in loader:
+        tok = batch["tokens"].to(device)  # (B,T)
+        pos = batch["positions"].to(device)  # (B,T)
+        genre = batch["genre_id"].to(device)  # (B,)
+        tgt = batch["targets"].to(device)  # (B,T)
+
+        opt.zero_grad()
+        logits = model(
+            tok, pos, genre, tgt_tokens=tgt, tgt_pos=pos, teacher_forcing=tf_ratio
+        )
+        # CE expects (N,C) and targets (N,)
+        loss = crit(logits.reshape(-1, model.vocab_size), tgt.reshape(-1))
+        loss.backward()
+        nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+        opt.step()
+
+        total += loss.item() * tok.size(0)
+        n += tok.size(0)
+    return total / n
+
+
 @torch.no_grad()
-def generate_next(model, context, steps=16, threshold=0.5, sample=False):
-    """
-    context: tensor (1, L, F) with 1<=L<=63; model trained on (T=63,F=10)
-    steps: number of future steps to generate
-    threshold: for deterministic binarization if sample=False
-    sample: if True, Bernoulli-sample from sigmoid probs
-    Returns tensor (1, L+steps, F) in {0,1}
-    """
+def eval_epoch(model, loader, crit, device):
     model.eval()
-    x = context.clone().to(DEVICE)  # (1,L,F)
-    while x.size(1) < T:  # left-pad with zeros up to 63 if needed
-        pad = torch.zeros(1, 1, F, device=DEVICE)
-        x = torch.cat([pad, x], dim=1)
-    seq = x.clone()  # working window length 63
-    out_all = context.clone().to(DEVICE)
-
-    for _ in range(steps):
-        logits = model(seq)[:, -1, :]  # last step logits
-        p = torch.sigmoid(logits)
-        if sample:
-            step = torch.bernoulli(p).float()
-        else:
-            step = (p >= threshold).float()
-        out_all = torch.cat([out_all, step.unsqueeze(1)], dim=1)
-        seq = torch.cat([seq[:, 1:, :], step.unsqueeze(1)], dim=1)  # slide window
-    return out_all.detach().cpu()
+    total, n = 0.0, 0
+    for batch in loader:
+        tok = batch["tokens"].to(device)
+        pos = batch["positions"].to(device)
+        genre = batch["genre_id"].to(device)
+        tgt = batch["targets"].to(device)
+        logits = model(
+            tok, pos, genre, tgt_tokens=tgt, tgt_pos=pos, teacher_forcing=0.0
+        )
+        loss = crit(logits.reshape(-1, model.vocab_size), tgt.reshape(-1))
+        total += loss.item() * tok.size(0)
+        n += tok.size(0)
+    return total / n
 
 
-from pathlib import Path
+def save_ckpt(path, model, opt, epoch, metrics: dict):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    torch.save(
+        {
+            "epoch": epoch,
+            "model_state": model.state_dict(),
+            "optim_state": opt.state_dict(),
+            "metrics": metrics,
+        },
+        path,
+    )
 
-import matplotlib.pyplot as plt
-import numpy as np
 
-
-def plot_drum_sequence(file_path, threshold=0.5, title=None, save_to=None, show=True):
-    """
-    file_path: path to generated .npy or .npz
-    Expects array shape (T, F) or (1, T, F). Values in [0,1] or {0,1}.
-    """
-    file_path = Path(file_path)
-    if file_path.suffix == ".npy":
-        arr = np.load(file_path)
-    elif file_path.suffix == ".npz":
-        data = np.load(file_path)
-        # try common keys
-        for k in ("generated", "arr_0"):
-            if k in data:
-                arr = data[k]
-                break
-        else:
-            raise KeyError(
-                "No suitable array key found in npz (tried 'generated', 'arr_0')."
-            )
-    else:
-        raise ValueError("Unsupported file type. Use .npy or .npz")
-
-    if arr.ndim == 3 and arr.shape[0] == 1:
-        arr = arr[0]
-    if arr.ndim != 2:
-        raise ValueError(f"Expected (T,F) or (1,T,F). Got {arr.shape}")
-
-    # binarize if needed
-    arr_bin = (arr >= threshold).astype(float)
-
-    plt.figure(figsize=(12, 3 + 0.2 * arr_bin.shape[1]))
-    plt.imshow(arr_bin.T, aspect="auto", interpolation="nearest", origin="lower")
-    plt.xlabel("Time steps")
-    plt.ylabel("Drum channels")
-    plt.title(title or f"{file_path.name}  |  shape {arr_bin.shape}")
-    plt.colorbar(label="hit")
-    plt.tight_layout()
-
-    if save_to:
-        plt.savefig(save_to, dpi=150, bbox_inches="tight")
-    if show:
-        plt.show()
-    else:
-        plt.close()
-
+# ----------------------- Example wiring -----------------------
+# Assumes your DrumDataset returns dict with keys: tokens, positions, genre_id, targets
 
 if __name__ == "__main__":
+    from ml.data.dataset import DrumDataset
 
-    # define the same model class and hyperparams used for training
-    model = LSTMNextStep(hidden_size=256, num_layers=3, dropout=0.1).to(DEVICE)
+    device = torch.device(
+        "cuda"
+        if torch.cuda.is_available()
+        else "mps" if torch.backends.mps.is_available() else "cpu"
+    )
 
-    # load checkpoint
-    ckpt = torch.load("checkpoints/big_jazz_best.pt", map_location=DEVICE)
-    model.load_state_dict(ckpt["model_state"])  # key name from your training code
-    model.eval()
+    # Datasets
+    train_dir = "dataset/processed/q_16/seg_64/train"
+    val_dir = "dataset/processed/q_16/seg_64/test"
 
-    with torch.no_grad():
-        dataset = DrumDataset(
-            data_dir="dataset/processed",
-            config_path="config.yaml",
-            include_genre=False,
+    train_set = DrumDataset(train_dir, include_genre=True)
+    val_set = DrumDataset(val_dir, include_genre=True)
+
+    # Infer vocab sizes from data
+    # Scan a few files for max token and position ids
+    tokenizer = SimpleTokenizer()
+    cfg = load_config()
+
+    vocab_size, pos_vocab_size = (
+        len(tokenizer) + 1,
+        cfg["dataset"]["quantization"] + 1,
+    )  # maybe segment length?
+    num_genres = len(train_set.genres)
+
+    model = Seq2SeqLSTM(
+        vocab_size=vocab_size,
+        pos_vocab_size=pos_vocab_size,
+        num_genres=num_genres,
+        token_embed_dim=128,
+        pos_embed_dim=8,
+        genre_embed_dim=8,
+        hidden=256,
+        layers=2,
+        dropout=0.1,
+    ).to(device)
+
+    train_loader = DataLoader(
+        train_set, batch_size=256, shuffle=True, num_workers=2, persistent_workers=True
+    )
+    val_loader = DataLoader(
+        val_set, batch_size=256, shuffle=False, num_workers=2, persistent_workers=True
+    )
+
+    cfg = TrainConfig()
+    opt = torch.optim.AdamW(
+        model.parameters(), lr=cfg.lr, weight_decay=cfg.weight_decay
+    )
+    crit = nn.CrossEntropyLoss()
+
+    best = math.inf
+    for epoch in range(1, cfg.epochs + 1):
+        tf_ratio = linear_tf(
+            epoch - 1, cfg.epochs, cfg.teacher_forcing_start, cfg.teacher_forcing_end
         )
+        tr = train_epoch(model, train_loader, opt, crit, device, tf_ratio)
+        va = eval_epoch(model, val_loader, crit, device)
+        save_ckpt(
+            f"checkpoints/seq2seq_epoch_{epoch:03d}.pt",
+            model,
+            opt,
+            epoch,
+            {"train": tr, "val": va},
+        )
+        if va < best:
+            best = va
+            save_ckpt(
+                "checkpoints/seq2seq_best.pt",
+                model,
+                opt,
+                epoch,
+                {"train": tr, "val": va},
+            )
+        print(f"ep {epoch:02d}  train {tr:.4f}  val {va:.4f}  tf={tf_ratio:.2f}")
 
-        # take one real sequence as context (first 16 steps)
-        x0, _ = dataset[110000]
-        ctx = x0[:16].unsqueeze(0)  # (1,16,9)
-        gen = generate_next(
-            model, ctx, steps=64, threshold=0.5, sample=False
-        )  # (1, 16+32, 9)
-        # gen contains binary predictions; save if you want
-        np.save("generated.npy", gen.numpy())
+    # ----------------------- Generation -----------------------
+    @torch.no_grad()
+    def generate(
+        model,
+        prim_tokens,
+        prim_pos,
+        genre_id,
+        steps: int,
+        temperature: float = 1.0,
+        start_token_id: int = 1,
+    ):
+        """
+        prim_*: (1,T) tensors to build encoder context
+        returns (1, steps) token ids
+        """
+        model.eval()
+        h, c = model.encode(prim_tokens, prim_pos, genre_id)
+        B = prim_tokens.size(0)
+        prev = torch.full(
+            (B,), start_token_id, dtype=torch.long, device=prim_tokens.device
+        )
+        out_tokens = []
+        for t in range(steps):
+            pe = model.pos_emb((prim_pos[:, -1] + t) % model.pos_emb.num_embeddings)
+            g = model.genre_emb(genre_id)
+            te = model.token_emb(prev)
+            x = torch.cat([te, pe, g], dim=-1).unsqueeze(1)
+            y, (h, c) = model.decoder(x, (h, c))
+            logits = model.proj(y).squeeze(1) / max(1e-6, temperature)
+            probs = torch.softmax(logits, dim=-1)
+            prev = torch.multinomial(probs, num_samples=1).squeeze(1)
+            out_tokens.append(prev.unsqueeze(1))
+        return torch.cat(out_tokens, dim=1)
 
-    plot_drum_sequence("generated.npy", threshold=0.5, save_to="generated_plot.png")
+
+# Example use after training:
+# sample = train_set[0]
+# prim_tok = sample["tokens"].unsqueeze(0).to(device)     # (1,T)
+# prim_pos = sample["positions"].unsqueeze(0).to(device)  # (1,T)
+# genre_id = sample["genre_id"].unsqueeze(0).to(device)   # (1,)
+# gen = generate(model, prim_tok, prim_pos, genre_id, steps=32, temperature=0.9)
+# np.save("generated_tokens.npy", gen.cpu().numpy())

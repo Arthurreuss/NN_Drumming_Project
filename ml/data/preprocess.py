@@ -266,6 +266,8 @@ def preprocess_dataset() -> tuple[DrumDataset, DrumDataset]:
         max_samples_per_file,
         tokenizer,
     )
+    print("Saving tokenizer vocabulary...")
+    tokenizer.save()
 
     return DrumDataset(train_dir, include_genre=True), DrumDataset(
         test_dir, include_genre=True

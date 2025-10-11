@@ -6,7 +6,14 @@ from utils.cfg import load_config
 class SimpleTokenizer:
     def __init__(self, vocab=None):
         self.cfg = load_config()
-        self.vocab = vocab or {}
+        if vocab is None:
+            try:
+                self.vocab = self.load()
+            except Exception as e:
+                print(f"[Tokenizer] Warning: failed to load existing vocab: {e}")
+                self.vocab = {}
+        else:
+            self.vovab = vocab
 
     def __len__(self):
         return len(self.vocab)
@@ -38,3 +45,9 @@ class SimpleTokenizer:
             if val == token_id:
                 return np.array(key)
         raise ValueError(f"Token ID {token_id} not found in vocabulary.")
+
+    def save(self, path="dataset/tokenizer.npy"):
+        np.save(path, self.vocab, allow_pickle=True)
+
+    def load(self, path="dataset/tokenizer.npy"):
+        return np.load(path, allow_pickle=True).item()
