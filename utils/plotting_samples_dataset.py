@@ -85,7 +85,7 @@ if __name__ == "__main__":
     data_dir = "dataset/processed"
     config_path = "config.yaml"
 
-    dataset = DrumDataset(data_dir, config_path, include_genre=False)
+    dataset = DrumDataset(data_dir, config_path, include_genre=True)
     X_in, X_out = dataset[-2]
 
     print("Input shape:", X_in.shape)
