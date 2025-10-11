@@ -34,6 +34,7 @@ dataset:
     tom_high: [48, 50]
     crash: [49, 57]
     ride: [51, 59]
+  loudness_ranges: [0.0, 0.2, 0.4, 0.6, 0.8, 1.0]
 
 # ===============================
 # Pipeline Configuration
