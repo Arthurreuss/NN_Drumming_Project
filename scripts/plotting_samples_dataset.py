@@ -51,7 +51,7 @@ def plot_drum_sample(dataset, index=0):
 
 
 if __name__ == "__main__":
-    data_dir = "dataset/processed/q_16/seg_64/test"
+    data_dir = "dataset/processed/q_16/seg_64/val"
 
     dataset = DrumDataset(data_dir, include_genre=True)
     print(f"Dataset size: {len(dataset)} samples")

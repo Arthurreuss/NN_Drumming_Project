@@ -1,14 +1,14 @@
-from email.mime import base
+import csv
 import math
 import os
-import csv
 
+import numpy as np
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
 
-from ml.data.dataset import DrumDataset
 from ml.utils.cfg import load_config
+from ml.utils.metrics import compute_eval_metrics
 
 
 def linear_tf(epoch, epochs, tf_start, tf_end):
@@ -71,24 +71,43 @@ def save_ckpt(path, model, opt, epoch, metrics: dict):
     )
 
 
-def train(model, device, train_set, val_set):
+def train(model, device, train_set, val_set, tokenizer):
     cfg = load_config()
     training_cfg = cfg["training"]
-    
-    base_dir = f"{training_cfg['checkpoint_dir']}/{cfg["pipeline"]["model"]}"
+
+    base_dir = f"{training_cfg['checkpoint_dir']}/{cfg['pipeline']['model']}"
     log_path = f"{base_dir}/training_log.csv"
-    
+
     os.makedirs(os.path.dirname(log_path), exist_ok=True)
     if not os.path.exists(log_path):
         with open(log_path, "w", newline="") as f:
             writer = csv.writer(f)
-            writer.writerow(["epoch", "train_loss", "val_loss", "teacher_forcing"])
+            writer.writerow(
+                [
+                    "epoch",
+                    "train_loss",
+                    "val_loss",
+                    "teacher_forcing",
+                    "accuracy",
+                    "f1_macro",
+                    "groove_similarity",
+                    "pattern_entropy",
+                ]
+            )
 
     train_loader = DataLoader(
-        train_set, batch_size=training_cfg["batch_size"], shuffle=True, num_workers=2, persistent_workers=True
+        train_set,
+        batch_size=training_cfg["batch_size"],
+        shuffle=True,
+        num_workers=2,
+        persistent_workers=True,
     )
     val_loader = DataLoader(
-        val_set, batch_size=training_cfg["batch_size"], shuffle=False, num_workers=2, persistent_workers=True
+        val_set,
+        batch_size=training_cfg["batch_size"],
+        shuffle=False,
+        num_workers=2,
+        persistent_workers=True,
     )
 
     opt = torch.optim.AdamW(
@@ -108,12 +127,62 @@ def train(model, device, train_set, val_set):
         )
         tr = train_epoch(model, train_loader, opt, crit, device, tf_ratio)
         va = eval_epoch(model, val_loader, crit, device)
+
+        # --- Compute additional metrics on a validation subset ---
+        model.eval()
+        all_preds, all_targets = [], []
+        for i, batch in enumerate(val_loader):
+            if i > 10:  # only first few batches to save time
+                break
+            tok = batch["tokens"].to(device)
+            pos = batch["positions"].to(device)
+            genre = batch["genre_id"].to(device)
+            tgt = batch["targets"].to(device)
+            logits = model(
+                tok, pos, genre, tgt_tokens=tgt, tgt_pos=pos, teacher_forcing=0.0
+            )
+            preds = logits.argmax(-1).cpu().numpy().flatten()
+            targets = tgt.cpu().numpy().flatten()
+            all_preds.extend(preds)
+            all_targets.extend(targets)
+
+        try:
+            extra_metrics = compute_eval_metrics(
+                np.array(all_preds), np.array(all_targets), tokenizer
+            )
+        except Exception as e:
+            print(f"[Warning] Metric computation failed: {e}")
+            extra_metrics = {}
+
+        # --- Combine and log ---
+        metrics = {"train_loss": tr, "val_loss": va, **extra_metrics}
+        print(
+            f"ep {epoch:02d} | tr {tr:.4f} | val {va:.4f} | tf={tf_ratio:.2f} | acc={metrics['accuracy']:.3f} | f1={metrics['f1_macro']:.3f}"
+        )
+
+        # Save to CSV
+        with open(log_path, "a", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow(
+                [
+                    epoch,
+                    tr,
+                    va,
+                    tf_ratio,
+                    metrics["accuracy"],
+                    metrics["f1_macro"],
+                    metrics["groove_similarity"],
+                    metrics["pattern_entropy"],
+                ]
+            )
+
+        # save checkpoints
         save_ckpt(
             f"{base_dir}/seq2seq_epoch_{epoch:03d}.pt",
             model,
             opt,
             epoch,
-            {"train": tr, "val": va},
+            {"train": tr, "val": va, **extra_metrics},
         )
         if va < best:
             best = va
@@ -122,12 +191,7 @@ def train(model, device, train_set, val_set):
                 model,
                 opt,
                 epoch,
-                {"train": tr, "val": va},
+                {"train": tr, "val": va, **extra_metrics},
             )
-        print(f"ep {epoch:02d}  train {tr:.4f}  val {va:.4f}  tf={tf_ratio:.2f}")
-        
-        with open(log_path, "a", newline="") as f:
-            writer = csv.writer(f)
-            writer.writerow([epoch, tr, va, tf_ratio])
-            
+
     return model

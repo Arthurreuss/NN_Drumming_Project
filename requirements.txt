@@ -7,3 +7,4 @@ Unidecode==1.4.0
 torch
 tqdm
 pretty_midi
+scikit-learn

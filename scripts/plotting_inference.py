@@ -25,5 +25,5 @@ def plot_drum_matrix(matrix, title="Generated Drum Pattern", save_path=None):
     plt.tight_layout()
     plt.show()
     if save_path:
-        fig.savefig(save_path)
+        fig.savefig(save_path, dpi=300, bbox_inches="tight", transparent=True)
     plt.close(fig)
