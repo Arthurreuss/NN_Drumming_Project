@@ -75,7 +75,7 @@ def train(model, device, train_set, val_set, tokenizer):
     cfg = load_config()
     training_cfg = cfg["training"]
 
-    base_dir = f"{training_cfg['checkpoint_dir']}/{cfg['pipeline']['model']}"
+    base_dir = f"{training_cfg['checkpoint_dir']}/seg_{cfg['pipeline']['train']['segment_len']}/{cfg['pipeline']['model']}"
     log_path = f"{base_dir}/training_log.csv"
 
     os.makedirs(os.path.dirname(log_path), exist_ok=True)

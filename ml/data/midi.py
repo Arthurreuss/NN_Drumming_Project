@@ -107,7 +107,7 @@ class Midi:
         drum_instrument = pretty_midi.Instrument(program=0, is_drum=True)
 
         # Determine timing
-        fs = self._quantization
+        fs = self._quantization / 2
         step_duration = 60.0 / tempo / fs
 
         # Iterate over time steps and instruments

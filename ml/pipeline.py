@@ -53,7 +53,7 @@ class Pipeline:
             raise ValueError(f"Unknown model name: {model_name}")
 
     def _load_model(self):
-        ckpt_path = f"checkpoints/{self.pipeline_cfg['model']}/seq2seq_best.pt"
+        ckpt_path = f"checkpoints/seg_{self.pipeline_cfg['train']['segment_len']}/{self.pipeline_cfg['model']}/seq2seq_best.pt"
         ckpt = torch.load(ckpt_path, map_location=self.device, weights_only=False)
         self.model.load_state_dict(ckpt["model_state"], strict=False)
         self.model.eval()
@@ -61,20 +61,20 @@ class Pipeline:
 
     def run(self):
         # load or preprocess dataset
-        if self.pipeline_cfg["preprocess"]:
+        if self.pipeline_cfg["data"]["preprocess"]:
             self.trainset, self.val_set, self.testset, self.tokenizer = (
                 self.preprocessor.preprocess_dataset()
             )
         else:
             try:
                 self.train_set = DrumDataset(
-                    self.dataset_cfg["train_dir"], include_genre=True
+                    self.pipeline_cfg["data"]["train_dir"], include_genre=True
                 )
                 self.val_set = DrumDataset(
-                    self.dataset_cfg["val_dir"], include_genre=True
+                    self.pipeline_cfg["data"]["val_dir"], include_genre=True
                 )
                 self.test_set = DrumDataset(
-                    self.dataset_cfg["test_dir"], include_genre=True
+                    self.pipeline_cfg["data"]["test_dir"], include_genre=True
                 )
             except Exception as e:
                 print(f"[Pipeline] Error loading datasets: {e}")
@@ -84,7 +84,7 @@ class Pipeline:
         self._build_model(self.pipeline_cfg["model"])
 
         # train
-        if self.pipeline_cfg["train"]:
+        if self.pipeline_cfg["train"]["enabled"]:
             self.model = train(
                 self.model, self.device, self.train_set, self.test_set, self.tokenizer
             )
@@ -152,7 +152,7 @@ class Pipeline:
             for k, v in metrics.items():
                 print(f"{k:20s}: {v:.4f}")
 
-            out_dir = "outputs"
+            out_dir = f"checkpoints/seg_{self.pipeline_cfg['train']['segment_len']}/{self.pipeline_cfg['model']}"
             os.makedirs(out_dir, exist_ok=True)
             csv_path = os.path.join(out_dir, "test_eval_metrics.csv")
             with open(csv_path, "w", newline="") as f:
