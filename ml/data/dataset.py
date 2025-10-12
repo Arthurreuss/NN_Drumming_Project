@@ -5,7 +5,7 @@ import torch
 import yaml
 from torch.utils.data import Dataset
 
-from utils.cfg import load_config
+from ml.utils.cfg import load_config
 
 
 class DrumDataset(Dataset):

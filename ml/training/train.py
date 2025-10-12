@@ -7,7 +7,7 @@ import torch.nn as nn
 from torch.utils.data import DataLoader
 
 from ml.data.dataset import DrumDataset
-from utils.cfg import load_config
+from ml.utils.cfg import load_config
 
 
 def linear_tf(epoch, epochs, tf_start, tf_end):

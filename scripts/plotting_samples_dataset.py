@@ -1,6 +1,4 @@
 import matplotlib.pyplot as plt
-import numpy as np
-import torch
 
 from ml.data.dataset import DrumDataset
 

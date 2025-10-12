@@ -1,8 +1,9 @@
-import enum
-
 import numpy as np
+import pretty_midi
 from mido import MidiFile
 from unidecode import unidecode
+
+from ml.utils.cfg import load_config
 
 
 class Midi:
@@ -94,6 +95,34 @@ class Midi:
         return self.tracks
 
     def create_midi(self, drumroll_matrix, output_path, tempo=100):
-        # todo
-        # use _create_pianoroll_from_drumroll
-        pass
+        """
+        Convert a (T,9) drumroll matrix with 0–1 values into a MIDI drum track.
+        """
+        cfg = load_config()
+        if drumroll_matrix.ndim != 2 or drumroll_matrix.shape[1] != 9:
+            raise ValueError("Expected matrix shape (T,9)")
+
+        # Create MIDI object
+        pm = pretty_midi.PrettyMIDI(initial_tempo=tempo)
+        drum_instrument = pretty_midi.Instrument(program=0, is_drum=True)
+
+        # Determine timing
+        fs = self._quantization
+        step_duration = 60.0 / tempo / fs
+
+        # Iterate over time steps and instruments
+        for t in range(drumroll_matrix.shape[0]):  # timesteps
+            for i, name in enumerate(cfg["dataset"]["pitch_groups"].keys()):
+                if drumroll_matrix[t, i] > 0:
+                    for pitch in cfg["dataset"]["pitch_groups"][name]:
+                        note = pretty_midi.Note(
+                            velocity=int(drumroll_matrix[t, i] * 127),
+                            pitch=pitch,
+                            start=t * step_duration,
+                            end=(t + 1) * step_duration,
+                        )
+                        drum_instrument.notes.append(note)
+
+        pm.instruments.append(drum_instrument)
+        pm.write(output_path)
+        print(f"[MIDI] Saved drum track to {output_path}")

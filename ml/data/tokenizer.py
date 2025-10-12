@@ -1,6 +1,6 @@
 import numpy as np
 
-from utils.cfg import load_config
+from ml.utils.cfg import load_config
 
 
 class SimpleTokenizer:
@@ -46,8 +46,8 @@ class SimpleTokenizer:
                 return np.array(key)
         raise ValueError(f"Token ID {token_id} not found in vocabulary.")
 
-    def save(self, path="dataset/tokenizer.npy"):
+    def save(self, path="dataset/simple_tokenizer.npy"):
         np.save(path, self.vocab, allow_pickle=True)
 
-    def load(self, path="dataset/tokenizer.npy"):
+    def load(self, path="dataset/simple_tokenizer.npy"):
         return np.load(path, allow_pickle=True).item()
