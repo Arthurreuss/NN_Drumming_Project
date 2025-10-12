@@ -17,6 +17,7 @@ class Pipeline:
         self.dataset_cfg = self.cfg["dataset"]
         self.pipeline_cfg = self.cfg["pipeline"]
         self.training_cfg = self.cfg["training"]
+        self.model_cfg = self.cfg["model"]
         self.midi_reader = Midi(self.dataset_cfg["quantization"])
         self.tokenizer = SimpleTokenizer()  # TODO: if we have multiple write funciton
         self.preprocessor = DrumPreprocessor(self.midi_reader, self.tokenizer)
@@ -30,18 +31,17 @@ class Pipeline:
         )
 
     def _build_model(self, model_name):
-        if model_name == "LSTM":
+        if model_name in ["small", "medium", "large"]:
             self.model = Seq2SeqLSTM(
                 vocab_size=len(self.tokenizer) + 1,
-                pos_vocab_size=self.dataset_cfg["quantization"]
-                + 1,  # maybe seg length instead
+                num_pos=self.dataset_cfg["segment_length"],
                 num_genres=len(self.train_set.genres),
-                token_embed_dim=128,
-                pos_embed_dim=8,
-                genre_embed_dim=8,
-                hidden=256,
-                layers=2,
-                dropout=0.1,
+                token_embed_dim=self.model_cfg[model_name]["token_embed_dim"],
+                pos_embed_dim=self.model_cfg[model_name]["pos_embed_dim"],
+                genre_embed_dim=self.model_cfg[model_name]["genre_embed_dim"],
+                hidden=self.model_cfg[model_name]["hidden_dim"],
+                layers=self.model_cfg[model_name]["num_layers"],
+                dropout=self.model_cfg[model_name]["dropout"],
             ).to(self.device)
         else:
             raise ValueError(f"Unknown model name: {model_name}")
@@ -69,7 +69,7 @@ class Pipeline:
 
         # train
         if self.pipeline_cfg["train"]:
-            self.model = train(self.model)
+            self.model = train(self.model, self.device, self.train_set, self.test_set)
 
         # inference
         if self.pipeline_cfg["inference"]["enabled"]:

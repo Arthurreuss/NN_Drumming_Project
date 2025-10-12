@@ -37,6 +37,33 @@ dataset:
   loudness_ranges: [0.0, 0.2, 0.4, 0.6, 0.8, 1.0]
 
 # ===============================
+# Model Configuration
+# ===============================
+
+model:
+  small:
+    hidden_dim: 128
+    num_layers: 1
+    dropout: 0.1
+    token_embed_dim: 64
+    pos_embed_dim: 4  
+    genre_embed_dim: 8
+  medium:
+    hidden_dim: 256
+    num_layers: 2
+    dropout: 0.2
+    token_embed_dim: 128
+    pos_embed_dim: 8  
+    genre_embed_dim: 8
+  large:
+    hidden_dim: 512
+    num_layers: 3
+    dropout: 0.3
+    token_embed_dim: 256
+    pos_embed_dim: 16  
+    genre_embed_dim: 16
+
+# ===============================
 # Training Configuration
 # ===============================
 
@@ -58,11 +85,11 @@ training:
 # ===============================
 
 pipeline:
-  model_name: LSTM    #Options : ["LSTM"]
+  model: medium    #Options : [small, medium, large]
   preprocess: False
   train: False
-  evaluate: True # ?
-  plot: True # ?
+  evaluate: True
+  plot: True
   inference: 
     enabled: True
     starting_sample: 0

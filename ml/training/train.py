@@ -1,6 +1,7 @@
+from email.mime import base
 import math
 import os
-import re
+import csv
 
 import torch
 import torch.nn as nn
@@ -70,23 +71,24 @@ def save_ckpt(path, model, opt, epoch, metrics: dict):
     )
 
 
-def train(model):
+def train(model, device, train_set, val_set):
     cfg = load_config()
     training_cfg = cfg["training"]
-
-    device = torch.device(
-        "cuda"
-        if torch.cuda.is_available()
-        else "mps" if torch.backends.mps.is_available() else "cpu"
-    )
-    train_set = DrumDataset(training_cfg["train_dir"], include_genre=True)
-    val_set = DrumDataset(training_cfg["test_dir"], include_genre=True)
+    
+    base_dir = f"{training_cfg['checkpoint_dir']}/{cfg["pipeline"]["model"]}"
+    log_path = f"{base_dir}/training_log.csv"
+    
+    os.makedirs(os.path.dirname(log_path), exist_ok=True)
+    if not os.path.exists(log_path):
+        with open(log_path, "w", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow(["epoch", "train_loss", "val_loss", "teacher_forcing"])
 
     train_loader = DataLoader(
-        train_set, batch_size=256, shuffle=True, num_workers=2, persistent_workers=True
+        train_set, batch_size=training_cfg["batch_size"], shuffle=True, num_workers=2, persistent_workers=True
     )
     val_loader = DataLoader(
-        val_set, batch_size=256, shuffle=False, num_workers=2, persistent_workers=True
+        val_set, batch_size=training_cfg["batch_size"], shuffle=False, num_workers=2, persistent_workers=True
     )
 
     opt = torch.optim.AdamW(
@@ -107,7 +109,7 @@ def train(model):
         tr = train_epoch(model, train_loader, opt, crit, device, tf_ratio)
         va = eval_epoch(model, val_loader, crit, device)
         save_ckpt(
-            f"{training_cfg['checkpoint_dir']}/seq2seq_epoch_{epoch:03d}.pt",
+            f"{base_dir}/seq2seq_epoch_{epoch:03d}.pt",
             model,
             opt,
             epoch,
@@ -116,11 +118,16 @@ def train(model):
         if va < best:
             best = va
             save_ckpt(
-                f"{training_cfg['checkpoint_dir']}/seq2seq_best.pt",
+                f"{base_dir}/seq2seq_best.pt",
                 model,
                 opt,
                 epoch,
                 {"train": tr, "val": va},
             )
         print(f"ep {epoch:02d}  train {tr:.4f}  val {va:.4f}  tf={tf_ratio:.2f}")
+        
+        with open(log_path, "a", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow([epoch, tr, va, tf_ratio])
+            
     return model

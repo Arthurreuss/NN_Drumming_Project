@@ -8,7 +8,7 @@ class Seq2SeqLSTM(nn.Module):
     def __init__(
         self,
         vocab_size: int,
-        pos_vocab_size: int,
+        num_pos: int,
         num_genres: int,
         token_embed_dim: int,
         pos_embed_dim: int,
@@ -21,7 +21,7 @@ class Seq2SeqLSTM(nn.Module):
         self.vocab_size = vocab_size
 
         self.token_emb = nn.Embedding(vocab_size, token_embed_dim)
-        self.pos_emb = nn.Embedding(pos_vocab_size, pos_embed_dim)
+        self.pos_emb = nn.Embedding(num_pos, pos_embed_dim)
         self.genre_emb = nn.Embedding(num_genres, genre_embed_dim)
 
         enc_in = token_embed_dim + pos_embed_dim + genre_embed_dim
@@ -72,7 +72,6 @@ class Seq2SeqLSTM(nn.Module):
         if tgt_tokens is not None and tgt_pos is not None:
             T = tgt_tokens.shape[1]
             logits_out = []
-            # first decoder input = <start> (use provided first target token if you prefer)
             prev_tok = torch.full((B,), start_token_id, dtype=torch.long, device=device)
             for t in range(T):
                 g = self.genre_emb(genre_id)
