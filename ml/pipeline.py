@@ -62,7 +62,7 @@ class Pipeline:
     def run(self):
         # load or preprocess dataset
         if self.pipeline_cfg["data"]["preprocess"]:
-            self.trainset, self.val_set, self.testset, self.tokenizer = (
+            self.train_set, self.val_set, self.test_set, self.tokenizer = (
                 self.preprocessor.preprocess_dataset()
             )
         else:
@@ -86,7 +86,7 @@ class Pipeline:
         # train
         if self.pipeline_cfg["train"]["enabled"]:
             self.model = train(
-                self.model, self.device, self.train_set, self.test_set, self.tokenizer
+                self.model, self.device, self.train_set, self.val_set, self.tokenizer
             )
 
         # inference
@@ -126,7 +126,7 @@ class Pipeline:
                 )
             if self.pipeline_cfg["inference"]["create_midi"]:
                 os.makedirs("outputs", exist_ok=True)
-                midi = self.midi_reader.create_midi(
+                self.midi_reader.create_midi(
                     matrix,
                     output_path=(
                         self.pipeline_cfg["inference"]["save_midi_filename"]

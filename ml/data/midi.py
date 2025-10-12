@@ -94,35 +94,55 @@ class Midi:
                 del self.tracks[name]
         return self.tracks
 
-    def create_midi(self, drumroll_matrix, output_path, tempo=100):
+    def create_midi(self, drumroll_matrix, output_path, tempo=100, threshold=0.3):
         """
-        Convert a (T,9) drumroll matrix with 0–1 values into a MIDI drum track.
+        Convert a (T,9) drumroll matrix (values 0–1) into a clean, playable MIDI drum file.
         """
         cfg = load_config()
-        if drumroll_matrix.ndim != 2 or drumroll_matrix.shape[1] != 9:
-            raise ValueError("Expected matrix shape (T,9)")
+        pitch_groups = cfg["dataset"]["pitch_groups"]
 
-        # Create MIDI object
+        if drumroll_matrix.ndim != 2 or drumroll_matrix.shape[1] != len(pitch_groups):
+            raise ValueError(f"Expected matrix shape (T,{len(pitch_groups)})")
+
         pm = pretty_midi.PrettyMIDI(initial_tempo=tempo)
         drum_instrument = pretty_midi.Instrument(program=0, is_drum=True)
 
-        # Determine timing
-        fs = self._quantization / 2
-        step_duration = 60.0 / tempo / fs
+        # Correct step duration: 16 steps per bar = 4 beats per bar * 4 steps per beat
+        step_duration = 60.0 / tempo / self._quantization
 
-        # Iterate over time steps and instruments
-        for t in range(drumroll_matrix.shape[0]):  # timesteps
-            for i, name in enumerate(cfg["dataset"]["pitch_groups"].keys()):
-                if drumroll_matrix[t, i] > 0:
-                    for pitch in cfg["dataset"]["pitch_groups"][name]:
+        drumroll_matrix = np.clip(drumroll_matrix, 0, 1)
+        drumroll_matrix = (drumroll_matrix > threshold).astype(int)
+
+        for i, name in enumerate(pitch_groups.keys()):
+            pitches = pitch_groups[name]
+            active = False
+            note_start = 0
+
+            for t in range(drumroll_matrix.shape[0]):
+                val = drumroll_matrix[t, i]
+                if val and not active:
+                    active = True
+                    note_start = t
+                elif not val and active:
+                    active = False
+                    start_time = note_start * step_duration
+                    end_time = t * step_duration
+                    for pitch in pitches:
                         note = pretty_midi.Note(
-                            velocity=int(drumroll_matrix[t, i] * 127),
-                            pitch=pitch,
-                            start=t * step_duration,
-                            end=(t + 1) * step_duration,
+                            velocity=100, pitch=pitch, start=start_time, end=end_time
                         )
                         drum_instrument.notes.append(note)
 
+            # Close last note if sequence ends while active
+            if active:
+                start_time = note_start * step_duration
+                end_time = drumroll_matrix.shape[0] * step_duration
+                for pitch in pitches:
+                    note = pretty_midi.Note(
+                        velocity=100, pitch=pitch, start=start_time, end=end_time
+                    )
+                    drum_instrument.notes.append(note)
+
         pm.instruments.append(drum_instrument)
         pm.write(output_path)
-        print(f"[MIDI] Saved drum track to {output_path}")
+        print(f"[MIDI] Saved cleaned drum track to {output_path}")

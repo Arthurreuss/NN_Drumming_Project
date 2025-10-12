@@ -152,6 +152,7 @@ class DrumPreprocessor:
     def preprocess_dataset(self):
         midi_dir = Path(self.midi_dir)
         midi_files = list(midi_dir.rglob("*.mid")) + list(midi_dir.rglob("*.midi"))
+        np.random.shuffle(midi_files)
         print(f"Found {len(midi_files)} MIDI files")
 
         splits = self._split_files_by_genre(midi_files)
@@ -176,5 +177,6 @@ class DrumPreprocessor:
         print("\nSaving tokenizer vocabulary...")
         self.tokenizer.save()
         print(f"[Tokenizer] Vocabulary size: {len(self.tokenizer)} tokens")
+        print("Preprocessing complete.\n")
 
         return datasets["train"], datasets["val"], datasets["test"], self.tokenizer
