@@ -115,7 +115,24 @@ def train(model, device, train_set, val_set, tokenizer):
         lr=training_cfg["learning_rate"],
         weight_decay=training_cfg["weight_decay"],
     )
-    crit = nn.CrossEntropyLoss()
+
+    print("[Loss] Computing class weights...")
+    token_counts = np.zeros(model.vocab_size, dtype=np.int64)
+
+    for batch in train_loader:
+        tokens = batch["tokens"].numpy().flatten()
+        for t in tokens:
+            if t < model.vocab_size:
+                token_counts[t] += 1
+
+    token_counts[token_counts == 0] = 1
+
+    weights = 1.0 / token_counts
+    weights = weights / weights.mean()  # normalize around 1
+    weights = torch.tensor(weights, dtype=torch.float32, device=device)
+    print(f"[Loss] Class weights computed for {len(weights)} tokens.")
+
+    crit = nn.CrossEntropyLoss(weight=weights)
 
     best = math.inf
     for epoch in range(1, training_cfg["epochs"] + 1):

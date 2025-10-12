@@ -174,6 +174,9 @@ class DrumPreprocessor:
             self._process_midi_files(files, out_dir, samples_per_genre, split_target)
             datasets[split] = DrumDataset(out_dir, include_genre=True)
 
+        # prunning
+        print("Pruning tokenizer...")
+        self.tokenizer.prune(min_freq=self.dataset_cfg["token_min_freq"])
         print("\nSaving tokenizer vocabulary...")
         self.tokenizer.save()
         print(f"[Tokenizer] Vocabulary size: {len(self.tokenizer)} tokens")
