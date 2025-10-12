@@ -4,10 +4,13 @@
 
 dataset:
   seed: 42
-  total_target: 22000 # total number of training samples
+  total_target: 220000 # total number of training samples
   raw_data_dir: dataset/e-gmd-v1.0.0
   preprocessed_data_dir: dataset/processed
   train_test_val_split: [0.7, 0.2, 0.1] # train, test, val
+  train_dir: dataset/processed/q_16/seg_64/train
+  val_dir: dataset/processed/q_16/seg_64/val
+  test_dir: dataset/processed/q_16/seg_64/test
   quantization: 16 # final should be 16 or 32
   segment_len: 64
   max_samples_per_file: 10
@@ -75,8 +78,7 @@ training:
   teacher_forcing_start: 0.9
   teacher_forcing_end: 0.2
   checkpoint_dir: checkpoints
-  train_dir: dataset/processed/q_16/seg_64/train
-  val_dir: dataset/processed/q_16/seg_64/val
+
 
 
 # ===============================
@@ -85,17 +87,19 @@ training:
 
 pipeline:
   model: medium    #Options : [small, medium, large]
-  preprocess: True
+  preprocess: False
   train: False
-  evaluate: True #TODO: evaluate on test set
-  plot: False
-  inference: 
+  evaluate:
     enabled: False
-    starting_sample: 0
+    batch_size: 256
+  plot: True
+  inference: 
+    enabled: True
+    starting_sample: 12000
     generation_length: 258
     temperature: 0.9
-    plot: False
+    plot: True
     save_plot_filename: outputs/prediction_plot.png
-    create_midi: False
+    create_midi: True
     save_midi_filename: outputs/generated_genre.mid
 
