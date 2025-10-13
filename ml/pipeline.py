@@ -1,5 +1,7 @@
 import csv
 import os
+import random
+from pathlib import Path
 
 import numpy as np
 import torch
@@ -19,12 +21,26 @@ from scripts.plotting_inference import plot_drum_matrix
 class Pipeline:
     def __init__(self):
         self.cfg = load_config()
-        self.dataset_cfg = self.cfg["dataset"]
+        self.dataset_cfg = self.cfg["dataset_creation"]
         self.pipeline_cfg = self.cfg["pipeline"]
         self.training_cfg = self.cfg["training"]
         self.model_cfg = self.cfg["model"]
-        self.midi_reader = Midi(self.dataset_cfg["quantization"])
-        self.tokenizer = SimpleTokenizer()
+
+        self.dataset_path = (
+            Path(self.dataset_cfg["preprocessed_data_dir"])
+            / f"q_{self.pipeline_cfg['quantization']}"
+            / f"seg_{self.pipeline_cfg['segment_len']}"
+        )
+        self.checkpoint_path = (
+            Path("checkpoints")
+            / f"seg_{self.pipeline_cfg['segment_len']}"
+            / self.pipeline_cfg["model"]
+        )
+
+        self.midi_reader = Midi(self.pipeline_cfg["quantization"])
+        self.tokenizer = SimpleTokenizer(
+            path=f"{self.dataset_path}/simple_tokenizer.npy"
+        )
         self.preprocessor = DrumPreprocessor(self.midi_reader, self.tokenizer)
         self.train_set = None
         self.val_set = None
@@ -40,20 +56,20 @@ class Pipeline:
         if model_name in ["small", "medium", "large"]:
             self.model = Seq2SeqLSTM(
                 vocab_size=len(self.tokenizer) + 1,
-                num_pos=self.dataset_cfg["segment_len"],
                 num_genres=len(self.dataset_cfg["genres"]),
                 token_embed_dim=self.model_cfg[model_name]["token_embed_dim"],
                 pos_embed_dim=self.model_cfg[model_name]["pos_embed_dim"],
                 genre_embed_dim=self.model_cfg[model_name]["genre_embed_dim"],
                 hidden=self.model_cfg[model_name]["hidden_dim"],
                 layers=self.model_cfg[model_name]["num_layers"],
+                period=self.pipeline_cfg["inference"]["period"],
                 dropout=self.model_cfg[model_name]["dropout"],
             ).to(self.device)
         else:
             raise ValueError(f"Unknown model name: {model_name}")
 
     def _load_model(self):
-        ckpt_path = f"checkpoints/seg_{self.pipeline_cfg['train']['segment_len']}/{self.pipeline_cfg['model']}/seq2seq_best.pt"
+        ckpt_path = self.checkpoint_path / "seq2seq_best.pt"
         ckpt = torch.load(ckpt_path, map_location=self.device, weights_only=False)
         self.model.load_state_dict(ckpt["model_state"], strict=False)
         self.model.eval()
@@ -61,20 +77,20 @@ class Pipeline:
 
     def run(self):
         # load or preprocess dataset
-        if self.pipeline_cfg["data"]["preprocess"]:
+        if self.pipeline_cfg["create_dataset"]:
             self.train_set, self.val_set, self.test_set, self.tokenizer = (
                 self.preprocessor.preprocess_dataset()
             )
         else:
             try:
                 self.train_set = DrumDataset(
-                    self.pipeline_cfg["data"]["train_dir"], include_genre=True
+                    self.dataset_path / "train_dir", include_genre=True
                 )
                 self.val_set = DrumDataset(
-                    self.pipeline_cfg["data"]["val_dir"], include_genre=True
+                    self.dataset_path / "val_dir", include_genre=True
                 )
                 self.test_set = DrumDataset(
-                    self.pipeline_cfg["data"]["test_dir"], include_genre=True
+                    self.dataset_path / "test_dir", include_genre=True
                 )
             except Exception as e:
                 print(f"[Pipeline] Error loading datasets: {e}")
@@ -84,16 +100,39 @@ class Pipeline:
         self._build_model(self.pipeline_cfg["model"])
 
         # train
-        if self.pipeline_cfg["train"]["enabled"]:
+        if self.pipeline_cfg["train_model"]:
             self.model = train(
-                self.model, self.device, self.train_set, self.val_set, self.tokenizer
+                self.model,
+                self.device,
+                self.train_set,
+                self.val_set,
+                self.tokenizer,
+                self.checkpoint_path,
             )
 
         # inference
         if self.pipeline_cfg["inference"]["enabled"]:
             self._load_model()
 
-            sample = self.val_set[self.pipeline_cfg["inference"]["starting_sample"]]
+            genre_indices = [
+                i
+                for i, s in enumerate(self.val_set)
+                if self.val_set.genres[s["genre_id"].item()]
+                == self.pipeline_cfg["inference"]["genre"]
+            ]
+
+            if not genre_indices:
+                raise ValueError(
+                    f"No samples found for genre '{self.pipeline_cfg['inference']['genre']}'"
+                )
+
+            # Pick one random sample
+            idx = random.choice(genre_indices)
+            sample = self.val_set[idx]
+            print(
+                f"[Inference] Picked sample {idx} ({self.pipeline_cfg['inference']['genre']})"
+            )
+
             prim_tok = sample["tokens"].unsqueeze(0).to(self.device)
             prim_pos = sample["positions"].unsqueeze(0).to(self.device)
             genre_id = sample["genre_id"].unsqueeze(0).to(self.device)
@@ -119,9 +158,7 @@ class Pipeline:
                     matrix,
                     title=f"Generated Drum Pattern (Genre: {self.val_set.genres[genre_idx]})",
                     save_path=(
-                        self.pipeline_cfg["inference"]["save_plot_filename"]
-                        if self.pipeline_cfg["inference"]["save_plot_filename"]
-                        else None
+                        f"outputs/{self.pipeline_cfg['inference']['genre']}_{idx}.png"
                     ),
                 )
             if self.pipeline_cfg["inference"]["create_midi"]:
@@ -129,17 +166,15 @@ class Pipeline:
                 self.midi_reader.create_midi(
                     matrix,
                     output_path=(
-                        self.pipeline_cfg["inference"]["save_midi_filename"]
-                        if self.pipeline_cfg["inference"]["save_midi_filename"]
-                        else "generated.mid"
+                        f"outputs/{self.pipeline_cfg['inference']['genre']}_{idx}.mid"
                     ),
                 )
 
-        if self.pipeline_cfg["evaluate"]["enabled"]:
+        if self.pipeline_cfg["evaluate"]:
             self._load_model()
             test_loader = DataLoader(
                 self.test_set,
-                batch_size=self.pipeline_cfg["evaluate"]["batch_size"],
+                batch_size=self.training_cfg["batch_size"],
                 shuffle=False,
                 num_workers=2,
             )
@@ -152,13 +187,12 @@ class Pipeline:
             for k, v in metrics.items():
                 print(f"{k:20s}: {v:.4f}")
 
-            out_dir = f"checkpoints/seg_{self.pipeline_cfg['train']['segment_len']}/{self.pipeline_cfg['model']}"
-            os.makedirs(out_dir, exist_ok=True)
-            csv_path = os.path.join(out_dir, "test_eval_metrics.csv")
+            os.makedirs(self.checkpoint_path, exist_ok=True)
+            csv_path = os.path.join(self.checkpoint_path, "test_eval_metrics.csv")
             with open(csv_path, "w", newline="") as f:
                 writer = csv.writer(f)
                 writer.writerow(["metric", "value"])
                 for k, v in metrics.items():
                     writer.writerow([k, v])
 
-            print(f"\n[Saved] Results written to {csv_path}")
+            print(f"\n[Eval] Results written to {csv_path}")

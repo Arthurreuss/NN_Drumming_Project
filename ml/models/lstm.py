@@ -1,3 +1,4 @@
+import math
 import random
 
 import torch
@@ -8,20 +9,20 @@ class Seq2SeqLSTM(nn.Module):
     def __init__(
         self,
         vocab_size: int,
-        num_pos: int,
         num_genres: int,
         token_embed_dim: int,
         pos_embed_dim: int,
         genre_embed_dim: int,
         hidden: int,
         layers: int,
+        period: int,
         dropout: float = 0.1,
     ):
         super().__init__()
         self.vocab_size = vocab_size
 
         self.token_emb = nn.Embedding(vocab_size, token_embed_dim)
-        self.pos_emb = nn.Embedding(num_pos, pos_embed_dim)
+        self.pos_emb = nn.Linear(2, pos_embed_dim)
         self.genre_emb = nn.Embedding(num_genres, genre_embed_dim)
 
         enc_in = token_embed_dim + pos_embed_dim + genre_embed_dim
@@ -42,11 +43,24 @@ class Seq2SeqLSTM(nn.Module):
             dropout=dropout if layers > 1 else 0.0,
         )
         self.proj = nn.Linear(hidden, vocab_size)
+        self.period = period
+
+    @staticmethod
+    def _phase_from_sincos(sin_cos):  # (B,2) -> (B,)
+        # sin_cos[...,0]=sin, sin_cos[...,1]=cos
+        return torch.atan2(sin_cos[..., 0], sin_cos[..., 1])  # [-pi, pi]
+
+    def _sincos_vec(self, step_idx, device):  # step_idx: (B,)
+        # step_idx in [0, period)
+        angle = 2 * math.pi * (step_idx.float() % self.period) / self.period
+        sin = torch.sin(angle)
+        cos = torch.cos(angle)
+        return torch.stack([sin, cos], dim=-1)  # (B,2)
 
     def encode(self, tokens, pos, genre_id):
         B, T = tokens.shape
         g = self.genre_emb(genre_id).unsqueeze(1).expand(B, T, -1)
-        x = torch.cat([self.token_emb(tokens), self.pos_emb(pos), g], dim=-1)
+        x = torch.cat([self.token_emb(tokens), self.pos_emb(pos.float()), g], dim=-1)
         _, (h, c) = self.encoder(x)
         return (h, c)
 
@@ -73,9 +87,9 @@ class Seq2SeqLSTM(nn.Module):
             T = tgt_tokens.shape[1]
             logits_out = []
             prev_tok = torch.full((B,), start_token_id, dtype=torch.long, device=device)
+            g = self.genre_emb(genre_id)
             for t in range(T):
-                g = self.genre_emb(genre_id)
-                pe = self.pos_emb(tgt_pos[:, t])
+                pe = self.pos_emb(tgt_pos[:, t].float())
                 te = self.token_emb(prev_tok)
                 inp = torch.cat([te, pe, g], dim=-1).unsqueeze(1)  # (B,1,D)
                 out, (h, c) = self.decoder(inp, (h, c))
@@ -87,12 +101,21 @@ class Seq2SeqLSTM(nn.Module):
 
         # Inference
         assert max_len is not None, "set max_len for inference"
+        # derive current step index from last encoder pos (sin,cos)
+        last_sc = src_pos[:, -1, :]  # (B,2)
+        phase = self._phase_from_sincos(last_sc)  # (B,)
+        # map phase [-pi,pi] -> step idx [0, period)
+        step0 = (
+            (phase + math.pi) / (2 * math.pi) * self.period
+        ).round().long() % self.period
+
+        g = self.genre_emb(genre_id)
         outputs = []
         prev_tok = torch.full((B,), start_token_id, dtype=torch.long, device=device)
         for t in range(max_len):
-            g = self.genre_emb(genre_id)
-            # if you have decoder positions for generation, pass them; else reuse src_pos[:, -1] + t % S
-            pe = self.pos_emb(src_pos[:, -1] + (t % self.pos_emb.num_embeddings))
+            step_t = (step0 + t) % self.period  # (B,)
+            sc_t = self._sincos_vec(step_t, device)  # (B,2)
+            pe = self.pos_emb(sc_t)
             te = self.token_emb(prev_tok)
             inp = torch.cat([te, pe, g], dim=-1).unsqueeze(1)
             out, (h, c) = self.decoder(inp, (h, c))
@@ -118,13 +141,23 @@ class Seq2SeqLSTM(nn.Module):
         self.eval()
         h, c = self.encode(prim_tokens, prim_pos, genre_id)
         B = prim_tokens.size(0)
+        device = prim_tokens.device
+
+        last_sc = prim_pos[:, -1, :]
+        phase = self._phase_from_sincos(last_sc)
+        step0 = (
+            (phase + math.pi) / (2 * math.pi) * self.period
+        ).round().long() % self.period
+
         prev = torch.full(
             (B,), start_token_id, dtype=torch.long, device=prim_tokens.device
         )
         out_tokens = []
+        g = self.genre_emb(genre_id)
         for t in range(steps):
-            pe = self.pos_emb((prim_pos[:, -1] + t) % self.pos_emb.num_embeddings)
-            g = self.genre_emb(genre_id)
+            step_t = (step0 + t) % self.period
+            sc_t = self._sincos_vec(step_t, device)
+            pe = self.pos_emb(sc_t)
             te = self.token_emb(prev)
             x = torch.cat([te, pe, g], dim=-1).unsqueeze(1)
             y, (h, c) = self.decoder(x, (h, c))

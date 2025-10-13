@@ -2,6 +2,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from ml.data.dataset import DrumDataset
+from ml.data.midi import Midi
 from ml.data.tokenizer import SimpleTokenizer
 
 
@@ -34,6 +35,8 @@ def plot_drum_sample(dataset, matrix=True, index=0):
 
             tokens_in = np.stack(detok_in, axis=0)  # (T, 9)
             tokens_out = np.stack(detok_out, axis=0)  # (T, 9)
+            output_path = f"outputs/sample_{idx+1}_input_matrix.mid"
+            Midi(16).create_midi(tokens_in, output_path=output_path)
 
         genre_name = (
             dataset.genres[genre_id] if genre_id < len(dataset.genres) else "unknown"
@@ -114,7 +117,7 @@ def plot_drum_sample(dataset, matrix=True, index=0):
 
 
 if __name__ == "__main__":
-    data_dir = "dataset/processed/q_16/seg_64/test"
+    data_dir = "dataset/processed/q_32/seg_512/test"
     dataset = DrumDataset(data_dir, include_genre=True)
     print(f"Dataset size: {len(dataset)} samples")
     plot_drum_sample(dataset, matrix=True, index=0)

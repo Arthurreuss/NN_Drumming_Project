@@ -71,12 +71,11 @@ def save_ckpt(path, model, opt, epoch, metrics: dict):
     )
 
 
-def train(model, device, train_set, val_set, tokenizer):
+def train(model, device, train_set, val_set, tokenizer, checkpoint_dir):
     cfg = load_config()
     training_cfg = cfg["training"]
 
-    base_dir = f"{training_cfg['checkpoint_dir']}/seg_{cfg['pipeline']['train']['segment_len']}/{cfg['pipeline']['model']}"
-    log_path = f"{base_dir}/training_log.csv"
+    log_path = f"{checkpoint_dir}/training_log.csv"
 
     os.makedirs(os.path.dirname(log_path), exist_ok=True)
     if not os.path.exists(log_path):
@@ -127,12 +126,12 @@ def train(model, device, train_set, val_set, tokenizer):
 
     token_counts[token_counts == 0] = 1
 
-    weights = 1.0 / token_counts
-    weights = weights / weights.mean()  # normalize around 1
+    weights = np.log(1 + token_counts.max() / token_counts)
+    weights = np.clip(weights, 0, 5)
+    weights = weights / weights.mean()
     weights = torch.tensor(weights, dtype=torch.float32, device=device)
-    print(f"[Loss] Class weights computed for {len(weights)} tokens.")
-
     crit = nn.CrossEntropyLoss(weight=weights)
+    print(f"[Loss] Class weights computed for {len(weights)} tokens.")
 
     best = math.inf
     for epoch in range(1, training_cfg["epochs"] + 1):
@@ -195,7 +194,7 @@ def train(model, device, train_set, val_set, tokenizer):
 
         # save checkpoints
         save_ckpt(
-            f"{base_dir}/seq2seq_epoch_{epoch:03d}.pt",
+            f"{checkpoint_dir}/seq2seq_epoch_{epoch:03d}.pt",
             model,
             opt,
             epoch,
@@ -204,7 +203,7 @@ def train(model, device, train_set, val_set, tokenizer):
         if va < best:
             best = va
             save_ckpt(
-                f"{base_dir}/seq2seq_best.pt",
+                f"{checkpoint_dir}/seq2seq_best.pt",
                 model,
                 opt,
                 epoch,

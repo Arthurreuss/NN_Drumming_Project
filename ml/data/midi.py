@@ -127,11 +127,11 @@ class Midi:
                     active = False
                     start_time = note_start * step_duration
                     end_time = t * step_duration
-                    for pitch in pitches:
-                        note = pretty_midi.Note(
-                            velocity=100, pitch=pitch, start=start_time, end=end_time
-                        )
-                        drum_instrument.notes.append(note)
+                    pitch = pitches[0]
+                    note = pretty_midi.Note(
+                        velocity=100, pitch=pitch, start=start_time, end=end_time
+                    )
+                    drum_instrument.notes.append(note)
 
             # Close last note if sequence ends while active
             if active:

@@ -14,7 +14,7 @@ class DrumDataset(Dataset):
         assert self.files, f"No .npz files found in {data_dir}"
         self.include_genre = include_genre
         cfg = load_config()
-        self.genres = cfg["dataset"]["genres"]
+        self.genres = cfg["dataset_creation"]["genres"]
         self.genre_to_idx = {g: i for i, g in enumerate(self.genres)}
 
     def __len__(self):
