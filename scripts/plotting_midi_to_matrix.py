@@ -1,4 +1,5 @@
 import matplotlib.pyplot as plt
+
 from ml.data.midi import Midi
 
 

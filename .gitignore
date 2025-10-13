@@ -9,3 +9,4 @@ e-gmd-v1.0.0/
 *.mid
 *.npz
 __pycache__/
+/checkpoints

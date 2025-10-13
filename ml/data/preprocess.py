@@ -1,219 +1,216 @@
 import random
 import re
 from collections import defaultdict
+from os import path
 from pathlib import Path
-from ml.data.dataset import DrumDataset
 
 import numpy as np
-from ml.data.midi import Midi
 from tqdm import tqdm
-from utils.cfg import load_config
+
+from ml.data.dataset import DrumDataset
+from ml.utils.cfg import load_config
 
 
-def _extract_metadata(midi_path: Path):
-    name = midi_path.stem
-    m = re.match(r"\d+_([a-zA-Z]+)-.*_(\d+)_beat.*", name)
-    if m:
-        return m.group(1).lower(), int(m.group(2))
-    return "unknown", -1
+class DrumPreprocessor:
+    def __init__(self, midi_reader, tokenizer):
+        self.cfg = load_config()
+        self.dataset_cfg = self.cfg["dataset_creation"]
+        self.midi_reader = midi_reader
+        self.tokenizer = tokenizer
+        self.pitch_groups = self.dataset_cfg["pitch_groups"]
+        self.genres = set(self.dataset_cfg["genres"])
+        self.total_target = self.dataset_cfg["total_target"]
+        self.midi_dir = self.dataset_cfg["raw_data_dir"]
+        self.save_dir = self.dataset_cfg["preprocessed_data_dir"]
+        self.quantization = self.dataset_cfg["quantization"]
+        self.segment_len = self.dataset_cfg["segment_len"]
+        self.max_samples_per_file = self.dataset_cfg["max_samples_per_file"]
+        self.train_test_val_split = self.dataset_cfg["train_test_val_split"]
+        self.seed = self.dataset_cfg["seed"]
+        np.random.seed(self.seed)
+        random.seed(self.seed)
 
+    def _extract_metadata(self, midi_path: Path):
+        name = midi_path.stem
+        genres = self.dataset_cfg["genres"]
+        for g in genres:
+            if g.lower() in name.lower() and "beat" in name.lower():
+                return g
+        return "unknown", -1
 
-def _simplify_matrix(mat: np.ndarray, pitch_groups: dict[str, list[int]]):
-    out = np.zeros((mat.shape[0], 9), dtype=np.float32)
-    for idx, key in enumerate(pitch_groups):
-        for p in pitch_groups[key]:
-            if p < mat.shape[1]:
-                out[:, idx] = np.maximum(out[:, idx], mat[:, p])
-    out /= 127.0
-    return out
+    def _simplify_matrix(self, mat: np.ndarray, pitch_groups: dict[str, list[int]]):
+        out = np.zeros((mat.shape[0], len(self.pitch_groups)), dtype=np.float32)
+        for idx, key in enumerate(pitch_groups):
+            for p in pitch_groups[key]:
+                if p < mat.shape[1]:
+                    out[:, idx] = np.maximum(out[:, idx], mat[:, p])
+        out /= 127.0
+        return out
 
+    def _trim_trailing_zeros_full_segments(self, mat: np.ndarray):
+        """Trim to last nonzero, then floor to full segment multiple."""
+        nz = np.any(mat > 0, axis=1)
+        if not nz.any():
+            return mat[:0]
+        last_idx = np.where(nz)[0][-1] + 1
+        trimmed_len = (last_idx // self.segment_len) * self.segment_len
+        return mat[:trimmed_len]
 
-def _trim_trailing_zeros_full_segments(mat: np.ndarray, segment_len: int):
-    """Trim to last nonzero, then floor to full segment multiple."""
-    nz = np.any(mat > 0, axis=1)
-    if not nz.any():
-        return mat[:0]
-    last_idx = np.where(nz)[0][-1] + 1
-    trimmed_len = (last_idx // segment_len) * segment_len
-    return mat[:trimmed_len]
+    def _split_files_by_genre(self, midi_files: list[Path]):
+        """Split files into train/val/test while maintaining genre balance."""
+        rng = random.Random(self.seed)
+        genre_files = defaultdict(list)
+        for f in midi_files:
+            genre = self._extract_metadata(f)
+            if genre in self.genres:
+                genre_files[genre].append(f)
 
+        splits = {"train": [], "val": [], "test": []}
+        per_genre_counts = {}
 
-def _split_files_by_genre(midi_files: list[Path], train_ratio: float, genres: set, 
-                          seed: int) -> tuple[list[Path], list[Path]]:
-    """
-    Split MIDI files into train/test sets while maintaining genre balance.
-    
-    Args:
-        midi_files: List of all MIDI file paths
-        train_ratio: Fraction of files to use for training (e.g., 0.8)
-        genres: Set of valid genre names
-        seed: Random seed for reproducibility
-        
-    Returns:
-        Tuple of (train_files, test_files)
-    """
-    rng = random.Random(seed)
-    
-    # Group files by genre
-    genre_files = defaultdict(list)
-    for f in midi_files:
-        genre, _ = _extract_metadata(f)
-        if genre in genres:
-            genre_files[genre].append(f)
-    
-    train_files = []
-    test_files = []
-    
-    # Split each genre independently
-    for genre, files in genre_files.items():
-        rng.shuffle(files)
-        split_idx = int(len(files) * train_ratio)
-        train_files.extend(files[:split_idx])
-        test_files.extend(files[split_idx:])
-    
-    # Shuffle the combined lists to mix genres
-    rng.shuffle(train_files)
-    rng.shuffle(test_files)
-    
-    print(f"\nFile split summary:")
-    print(f"{'Genre':<15} {'Train':<10} {'Test':<10} {'Total':<10}")
-    print("-" * 45)
-    for genre in sorted(genres):
-        files = genre_files[genre]
-        split_idx = int(len(files) * train_ratio)
-        train_count = split_idx
-        test_count = len(files) - split_idx
-        print(f"{genre:<15} {train_count:<10} {test_count:<10} {len(files):<10}")
-    print(f"{'Total':<15} {len(train_files):<10} {len(test_files):<10} {len(train_files) + len(test_files):<10}\n")
-    
-    return train_files, test_files
+        for genre, files in genre_files.items():
+            rng.shuffle(files)
+            n = len(files)
+            n_train = int(n * self.train_test_val_split[0])
+            n_val = int(n * self.train_test_val_split[1])
+            n_test = n - n_train - n_val
 
+            train_files = files[:n_train]
+            val_files = files[n_train : n_train + n_val]
+            test_files = files[n_train + n_val :]
 
-def preprocess_dataset() -> tuple[DrumDataset, DrumDataset]:
-    """
-    Build a balanced dataset of fixed-length drum segments from MIDI files.
+            splits["train"].extend(train_files)
+            splits["val"].extend(val_files)
+            splits["test"].extend(test_files)
 
-    Steps:
-      1) Load config: pitch_groups, genres, total_target, paths, quantization, segment_len, max_samples_per_file.
-      2) Init MIDI reader and output dirs: {save_dir}/q_{quantization}/seg_{segment_len}/<split>/.
-      3) Discover all .mid/.midi files and split by genre into train/test sets.
-      4) For each split (train/test):
-         - Process files until per-genre quota is met.
-         - Extract (genre, bpm); skip if not allowed or quota reached.
-         - Read tracks; for each track: simplify → trim → make non-overlapping starts → shuffle.
-         - Save up to min(remaining genre quota, max_samples_per_file) segments as .npz with fields:
-           X (float32, shape [segment_len, 9]), genre (str), bpm (int).
-      5) Stop when all genres hit their quota; print per-genre counts.
+            per_genre_counts[genre] = {
+                "train": len(train_files),
+                "val": len(val_files),
+                "test": len(test_files),
+                "total": n,
+            }
 
-    I/O:
-      - Reads config and MIDI under cfg['raw_data_dir'].
-      - Writes .npz segments under cfg['preprocessed_data_dir'] grouped by split and genre.
+        # --- Clean table print ---
+        print("\nSplit summary:")
+        print(f"{'Genre':<12} {'Train':>6} {'Val':>6} {'Test':>6} {'Total':>6}")
+        print("-" * 44)
+        for genre, c in sorted(per_genre_counts.items()):
+            print(
+                f"{genre:<12} {c['train']:>6} {c['val']:>6} {c['test']:>6} {c['total']:>6}"
+            )
+        print("-" * 44)
+        print(
+            f"{'Total':<12} "
+            f"{len(splits['train']):>6} "
+            f"{len(splits['val']):>6} "
+            f"{len(splits['test']):>6} "
+            f"{len(midi_files):>6}\n"
+        )
 
-    Guarantees:
-      - Even per-genre cap (total_target / |genres|) in each split.
-      - No data leakage - files are split before processing.
-      - Balanced genre distribution in both train and test sets.
-      - No partial tail segments.
-      - Values normalized to [0, 1].
-    """
-    cfg = load_config("config.yaml")["dataset"]
-    pitch_groups = cfg["pitch_groups"]
-    genres_cfg = cfg["genres"]
-    total_target = cfg["total_target"]
-    midi_dir = cfg["raw_data_dir"]
-    save_dir = cfg["preprocessed_data_dir"]
-    quantization = cfg["quantization"]
-    segment_len = cfg["segment_len"]
-    max_samples_per_file = cfg["max_samples_per_file"]
-    train_test_split = cfg["train_test_split"]
-    seed = cfg["seed"]
+        return splits
 
-    genres = set(genres_cfg)
-    midi_dir = Path(midi_dir)
-    
-    # Discover all MIDI files
-    midi_files = list(midi_dir.rglob("*.mid")) + list(midi_dir.rglob("*.midi"))
-    print(f"Found {len(midi_files)} MIDI files")
-    
-    # Split files by genre while maintaining balance
-    train_files, test_files = _split_files_by_genre(midi_files, train_test_split, genres, seed)
-    
-    reader = Midi(quantization=quantization)
-    
-    # Calculate split sizes
-    train_samples = int(total_target * train_test_split)
-    test_samples = total_target - train_samples
-    train_samples_per_genre = train_samples // len(genres)
-    test_samples_per_genre = test_samples // len(genres)
-    
-    # Create output directories
-    train_dir = Path(save_dir) / f"q_{quantization}" / f"seg_{segment_len}" / "train"
-    test_dir = Path(save_dir) / f"q_{quantization}" / f"seg_{segment_len}" / "test"
-    train_dir.mkdir(parents=True, exist_ok=True)
-    test_dir.mkdir(parents=True, exist_ok=True)
+    def _cyclic_positional_encoding(self):
+        t = np.arange(self.segment_len)
+        period = self.quantization * 4
+        return np.stack(
+            [np.sin(2 * np.pi * t / period), np.cos(2 * np.pi * t / period)], axis=1
+        )  # shape: (length, 2)
 
-    # Process train and test files separately
-    print("Processing training files...")
-    _process_midi_files(train_files, train_dir, reader, genres, train_samples_per_genre, 
-                       train_samples, pitch_groups, segment_len, max_samples_per_file)
-    
-    print("\nProcessing test files...")
-    _process_midi_files(test_files, test_dir, reader, genres, test_samples_per_genre,
-                       test_samples, pitch_groups, segment_len, max_samples_per_file)
-    
-    return DrumDataset(train_dir, config_path="config.yaml", include_genre=True), \
-           DrumDataset(test_dir, config_path="config.yaml", include_genre=True)
+    def _process_midi_files(
+        self, midi_files, output_dir, samples_per_genre, split_target
+    ):
+        counts = defaultdict(int)
+        saved = 0
+        pbar = tqdm(total=split_target, desc=f"Saving to {output_dir.name}", unit="seg")
 
+        # Shuffle all files globally for randomness
+        random.shuffle(midi_files)
 
-def _process_midi_files(midi_files, output_dir, reader, genres, samples_per_genre, 
-                       split_target, pitch_groups, segment_len, max_samples_per_file):
-    """Process MIDI files and save segments to the specified output directory."""
-    counts = defaultdict(int)
-    saved = 0
-    pbar = tqdm(total=split_target, desc=f"Saving to {output_dir.name}", unit="seg")
+        for midi_path in midi_files:
+            genre = self._extract_metadata(midi_path)
+            if genre not in self.genres:
+                continue
+            if counts[genre] >= samples_per_genre:
+                continue  # already enough for this genre
 
-    for midi_path in midi_files:
-        genre, bpm = _extract_metadata(midi_path)
-        if genre not in genres or counts[genre] >= samples_per_genre:
-            continue
-
-        tracks = reader.read_file(str(midi_path))
-        if not tracks:
-            continue
-
-        for name, mat in tracks.items():
-            mat = _simplify_matrix(mat, pitch_groups)
-            mat = _trim_trailing_zeros_full_segments(mat, segment_len)
-            n_steps = mat.shape[0]
-            if n_steps < segment_len:
+            tracks = self.midi_reader.read_file(str(midi_path))
+            if not tracks:
                 continue
 
-            # non-overlapping random order
-            starts = np.arange(0, n_steps - segment_len + 1, segment_len)
-            np.random.shuffle(starts)
+            for name, mat in tracks.items():
+                mat = self._simplify_matrix(mat, self.pitch_groups)
+                mat = self._trim_trailing_zeros_full_segments(mat)
+                n_steps = mat.shape[0]
+                if n_steps < self.segment_len:
+                    continue
 
-            genre_dir = output_dir / genre
-            genre_dir.mkdir(exist_ok=True)
+                # non-overlapping starts
+                starts = np.arange(0, n_steps - self.segment_len + 1, self.segment_len)
+                np.random.shuffle(starts)
 
-            picks = 0
-            for s in starts:
-                if counts[genre] >= samples_per_genre or picks >= max_samples_per_file:
-                    break
-                seg = mat[s : s + segment_len]
-                out_path = (
-                    genre_dir / f"{midi_path.stem}_{name}_bpm{bpm}_seg{s}_id{saved}.npz"
-                )
-                np.savez(out_path, X=seg, genre=genre, bpm=bpm)
-                counts[genre] += 1
-                picks += 1
-                saved += 1
-                pbar.update(1)
+                genre_dir = output_dir / genre
+                genre_dir.mkdir(exist_ok=True)
 
-        # stop early if all genre quotas hit
-        if all(counts[g] >= samples_per_genre for g in genres):
-            break
+                for s in starts:
+                    if counts[genre] >= samples_per_genre or saved >= split_target:
+                        break
 
-    pbar.close()
-    print(f"\nFinal counts per genre in {output_dir.name}:")
-    for g in sorted(genres):
-        print(f"  {g}: {counts[g]}")
+                    seg = mat[s : s + self.segment_len]
+                    tokens = [self.tokenizer.tokenize(vec) for vec in seg]
+                    positions = self._cyclic_positional_encoding()
+
+                    out_path = (
+                        genre_dir / f"{midi_path.stem}_{name}_seg{s}_id{saved}.npz"
+                    )
+                    np.savez(
+                        out_path,
+                        tokens=np.array(tokens, dtype=np.int32),
+                        positions=positions,
+                        genre=genre,
+                    )
+
+                    counts[genre] += 1
+                    saved += 1
+                    if saved % 50 == 0:  # less tqdm overhead
+                        pbar.update(50)
+
+            # Stop early if all genre quotas hit
+            if all(counts[g] >= samples_per_genre for g in self.genres):
+                break
+
+        pbar.close()
+        print(f"\nFinal counts per genre in {output_dir.name}:")
+        for g in sorted(self.genres):
+            print(f"  {g}: {counts[g]} samples")
+
+    def preprocess_dataset(self):
+        midi_dir = Path(self.midi_dir)
+        midi_files = list(midi_dir.rglob("*.mid")) + list(midi_dir.rglob("*.midi"))
+        random.shuffle(midi_files)  # shuffle globally
+        print(f"[Preprocessor] Found {len(midi_files)} MIDI files")
+
+        splits = self._split_files_by_genre(midi_files)
+        ratios = dict(zip(["train", "val", "test"], self.train_test_val_split))
+
+        base_dir = (
+            Path(self.save_dir) / f"q_{self.quantization}" / f"seg_{self.segment_len}"
+        )
+
+        datasets = {}
+        for split, files in splits.items():
+            print(f"\n[Preprocessor] Processing {split} set...")
+            out_dir = base_dir / split
+            out_dir.mkdir(parents=True, exist_ok=True)
+
+            split_target = int(self.total_target * ratios[split])
+            samples_per_genre = split_target // len(self.genres)
+
+            self._process_midi_files(files, out_dir, samples_per_genre, split_target)
+            datasets[split] = DrumDataset(out_dir, include_genre=True)
+
+        self.tokenizer.prune(min_freq=self.dataset_cfg["token_min_freq"])
+        self.tokenizer.save()
+        print(f"[Tokenizer] Vocabulary size: {len(self.tokenizer)} tokens")
+        print("[Preprocessor] Preprocessing complete.\n")
+
+        return datasets["train"], datasets["val"], datasets["test"], self.tokenizer

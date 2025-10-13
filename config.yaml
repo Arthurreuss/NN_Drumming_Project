@@ -1,17 +1,37 @@
 # ===============================
-# dataset Configuration
+# Pipeline Configuration
 # ===============================
 
-dataset:
+pipeline:
+  quantization: &q 64 #Options: [16, 32, 64]
+  segment_len: &seg_len 1024 #len of sample (At least 4x quantization to get one bar)
+  model: medium    #Options : [small, medium, large]
+  create_dataset: True
+  train_model: True
+  inference: 
+    enabled: False
+    genre: jazz #Options : [afrocuban, dance, funk, hiphop, jazz, latin, neworleans, pop, reggae, rock, soul] 
+    generation_length: 256
+    period: 64 #length of one bar (4xquantization)
+    temperature: 0.99
+    plot: True # saves to outputs
+    create_midi: True #saves to outputs
+  evaluate: True
+
+
+# ===============================
+# Dataset Configuration
+# ===============================
+
+dataset_creation:
   seed: 42
-  total_target: 22000 # total number of training samples
-  raw_data_dir: dataset/e-gmd-v1.0.0
-  preprocessed_data_dir: dataset/processed
-  train_test_split: 0.8
-  quantization: 16 # final should be 16 or 32
-  segment_len: 64
-  max_samples_per_file: 10
-  inlcude_genre: false
+  total_target: 2000 # total number of training samples
+  raw_data_dir: dataset/e-gmd-v1.0.0 # path to raw midi files
+  preprocessed_data_dir: dataset/processed # path to save processed data
+  quantization: *q #Options: [16, 32, 64]
+  segment_len: *seg_len #len of sample (At least 4x quantization to get one bar)
+  train_test_val_split: [0.7, 0.2, 0.1] # train, test, val
+  max_samples_per_file: 5  # max segments to extract from one midi file
   genres:
     - afrocuban
     - dance
@@ -24,32 +44,62 @@ dataset:
     - reggae
     - rock
     - soul
+    - blues
   pitch_groups:
     kick: [35, 36]
-    snare: [38, 40]
-    hh_closed: [42, 44]
+    snare_center: [38, 40]
+    snare_rim: [37]
+    clap: [39]
+    hh_closed: [42]
+    hh_pedal: [44]
     hh_open: [46]
     tom_low: [41, 43]
     tom_mid: [45, 47]
     tom_high: [48, 50]
     crash: [49, 57]
     ride: [51, 59]
-  loudness_ranges: [0.0, 0.2, 0.4, 0.6, 0.8, 1.0]
+    ride_bell: [53]
+  loudness_ranges: [0.0, 0.25, 0.5, 0.75, 1.0]
+  token_min_freq: 50 #pruning
 
 # ===============================
-# Pipeline Configuration
+# Model Configuration
 # ===============================
 
-pipeline:
-  model_name: "LSTM"    #Options : ["LSTM"]
-  dataset:
-    preprocess: True
-  train:
-    enabled: True
-    plot: True
-    tensor_board: True
-  evaluate:
-    enabled: True
-    plot: True
-  inference:
-    enabled: True
+model:
+  small:
+    hidden_dim: 128
+    num_layers: 1
+    dropout: 0.2
+    token_embed_dim: 64
+    pos_embed_dim: 4  
+    genre_embed_dim: 8
+  medium:
+    hidden_dim: 256
+    num_layers: 2
+    dropout: 0.2
+    token_embed_dim: 128
+    pos_embed_dim: 8  
+    genre_embed_dim: 8
+  large:
+    hidden_dim: 512
+    num_layers: 3
+    dropout: 0.3
+    token_embed_dim: 256
+    pos_embed_dim: 16  
+    genre_embed_dim: 16
+
+# ===============================
+# Training Configuration
+# ===============================
+
+training:
+  batch_size: 256
+  epochs: 10
+  learning_rate: 0.0005
+  weight_decay: 0.0001
+  teacher_forcing_start: 0.8
+  teacher_forcing_end: 0
+  checkpoint_dir: checkpoints
+
+

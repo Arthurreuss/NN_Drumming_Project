@@ -1,203 +1,168 @@
-# pytorch_lstm_drum.py
 import math
-import os
 import random
-import time
 
-import numpy as np
 import torch
 import torch.nn as nn
-from ml.data.dataset import DrumDataset
-from torch.utils.data import DataLoader, Dataset, random_split
-
-# -------- Config --------
-SEED = 42
-torch.manual_seed(SEED)
-random.seed(SEED)
-np.random.seed(SEED)
-DEVICE = torch.device(
-    "cuda"
-    if torch.cuda.is_available()
-    else "mps" if torch.backends.mps.is_available() else "cpu"
-)
-
-TIMESTEPS = 63  # required
-FEATURES = 9  # required
-BATCH_SMALL = 32  # for sanity overfit
-BATCH_FULL = 128
-LR = 1e-3
-EPOCHS_SANITY = 200
-EPOCHS_FULL = 30
-WEIGHT_DECAY = 1e-4
-CKPT_DIR = "./checkpoints"
-os.makedirs(CKPT_DIR, exist_ok=True)
 
 
-# -------- Model --------
-class LSTMNextStep(nn.Module):
-    """
-    One LSTM over the sequence; linear head at each step.
-    Input  : (B, 63, 9)
-    Output : (B, 63, 9) logits (use BCEWithLogitsLoss for multi-label hits)
-    """
-
-    def __init__(self, input_size=FEATURES, hidden_size=128, num_layers=2, dropout=0.0):
+class Seq2SeqLSTM(nn.Module):
+    def __init__(
+        self,
+        vocab_size: int,
+        num_genres: int,
+        token_embed_dim: int,
+        pos_embed_dim: int,
+        genre_embed_dim: int,
+        hidden: int,
+        layers: int,
+        period: int,
+        dropout: float = 0.1,
+    ):
         super().__init__()
-        self.lstm = nn.LSTM(
-            input_size=input_size,
-            hidden_size=hidden_size,
-            num_layers=num_layers,
+        self.vocab_size = vocab_size
+
+        self.token_emb = nn.Embedding(vocab_size, token_embed_dim)
+        self.pos_emb = nn.Linear(2, pos_embed_dim)
+        self.genre_emb = nn.Embedding(num_genres, genre_embed_dim)
+
+        enc_in = token_embed_dim + pos_embed_dim + genre_embed_dim
+        dec_in = token_embed_dim + pos_embed_dim + genre_embed_dim
+
+        self.encoder = nn.LSTM(
+            input_size=enc_in,
+            hidden_size=hidden,
+            num_layers=layers,
             batch_first=True,
-            dropout=dropout if num_layers > 1 else 0.0,
+            dropout=dropout if layers > 1 else 0.0,
         )
-        self.head = nn.Linear(hidden_size, input_size)
-
-    def forward(self, x):
-        # x: (B, T, F)
-        out, _ = self.lstm(x)  # (B, T, H)
-        logits = self.head(out)  # (B, T, F)
-        return logits
-
-
-def save_ckpt(path, model, optim, epoch, metrics):
-    torch.save(
-        {
-            "epoch": epoch,
-            "model_state": model.state_dict(),
-            "optim_state": optim.state_dict(),
-            "metrics": metrics,
-        },
-        path,
-    )
-
-
-@torch.no_grad()
-def eval_loss(model, loader, criterion):
-    model.eval()
-    loss_sum = 0.0
-    n = 0
-    for xb, yb in loader:
-        xb, yb = xb.to(DEVICE), yb.to(DEVICE)
-        logits = model(xb)
-        loss = criterion(logits, yb)
-        loss_sum += loss.item() * xb.size(0)
-        n += xb.size(0)
-    return loss_sum / max(1, n)
-
-
-def train_epoch(model, loader, optim, criterion, clip=1.0, amp=True):
-    model.train()
-    total = 0.0
-    n = 0
-    for xb, yb in loader:
-        xb, yb = xb.to(DEVICE), yb.to(DEVICE)
-        optim.zero_grad()
-        if amp:
-            with torch.autocast(device_type="mps", dtype=torch.float16):
-                logits = model(xb)
-                loss = criterion(logits, yb)
-        else:
-            logits = model(xb)
-            loss = criterion(logits, yb)
-        loss.backward()
-        torch.nn.utils.clip_grad_norm_(model.parameters(), clip)
-        optim.step()
-        total += loss.item() * xb.size(0)
-        n += xb.size(0)
-    return total / max(1, n)
-
-
-# -------- Main --------
-if __name__ == "__main__":
-    # 1) Load/prepare data
-    # X = np.load("your_sequences.npy")  # shape (N, 63, 9)
-    dataset = DrumDataset(
-        "dataset/processed/q_16/seg_64/jazz", "./config.yaml", include_genre=False
-    )
-
-    # Split
-    val_frac = 0.1
-    val_size = int(len(dataset) * val_frac)
-    train_size = len(dataset) - val_size
-    train_set, val_set = random_split(
-        dataset, [train_size, val_size], generator=torch.Generator().manual_seed(SEED)
-    )
-
-    # --- Small model, sanity overfit ---
-    small = LSTMNextStep(hidden_size=128, num_layers=1).to(DEVICE)
-    crit = nn.BCEWithLogitsLoss()
-    opt = torch.optim.AdamW(small.parameters(), lr=1e-3, weight_decay=1e-4)
-
-    SANITY_N = 1024
-    small_train, _ = random_split(
-        train_set,
-        [min(SANITY_N, len(train_set)), len(train_set) - min(SANITY_N, len(train_set))],
-        generator=torch.Generator().manual_seed(SEED),
-    )
-    dl_sanity = DataLoader(
-        small_train,
-        batch_size=128,
-        shuffle=True,
-        num_workers=2,
-        persistent_workers=True,
-    )
-    dl_sanity_val = DataLoader(val_set, batch_size=1024, shuffle=False)
-
-    # print("Sanity overfit (small model)...")
-    # best = float("inf")
-    # for e in range(20):
-    #     tr = train_epoch(small, dl_sanity, opt, crit, clip=1.0)
-    #     va = eval_loss(small, dl_sanity_val, crit)
-    #     if va < best:
-    #         best = va
-    #         save_ckpt(
-    #             os.path.join(CKPT_DIR, "small_sanity_best.pt"),
-    #             small,
-    #             opt,
-    #             e + 1,
-    #             {"train": tr, "val": va},
-    #         )
-    #     print(f"[sanity] ep{e+1:02d} train {tr:.4f} val {va:.4f}")
-
-    # --- Bigger model, full training ---
-    big = LSTMNextStep(hidden_size=256, num_layers=3, dropout=0.1).to(DEVICE)
-    crit_big = nn.BCEWithLogitsLoss()
-    opt_big = torch.optim.AdamW(big.parameters(), lr=8e-4, weight_decay=1e-4)
-    sched = torch.optim.lr_scheduler.ReduceLROnPlateau(opt_big, factor=0.5, patience=3)
-
-    dl_train = DataLoader(
-        train_set, batch_size=256, shuffle=True, num_workers=4, persistent_workers=True
-    )
-    dl_val = DataLoader(
-        val_set, batch_size=256, shuffle=False, num_workers=2, persistent_workers=True
-    )
-
-    print("Full training (big model)...")
-    best = float("inf")
-    for e in range(EPOCHS_FULL):
-        tr = train_epoch(
-            big, dl_train, opt_big, crit_big, clip=1.0, amp=(DEVICE.type == "cuda")
+        self.decoder = nn.LSTM(
+            input_size=dec_in,
+            hidden_size=hidden,
+            num_layers=layers,
+            batch_first=True,
+            dropout=dropout if layers > 1 else 0.0,
         )
-        va = eval_loss(big, dl_val, crit_big)
-        sched.step(va)
-        save_ckpt(
-            os.path.join(CKPT_DIR, f"big_jazz_epoch_{e+1:03d}.pt"),
-            big,
-            opt_big,
-            e + 1,
-            {"train": tr, "val": va},
-        )
-        if va < best:
-            best = va
-            save_ckpt(
-                os.path.join(CKPT_DIR, "big_jazz_best.pt"),
-                big,
-                opt_big,
-                e + 1,
-                {"train": tr, "val": va},
-            )
-        print(
-            f"[full ] ep{e+1:02d} train {tr:.4f} val {va:.4f} lr={opt_big.param_groups[0]['lr']:.2e}"
-        )
+        self.proj = nn.Linear(hidden, vocab_size)
+        self.period = period
 
-    print("Checkpoints in", CKPT_DIR)
+    @staticmethod
+    def _phase_from_sincos(sin_cos):  # (B,2) -> (B,)
+        # sin_cos[...,0]=sin, sin_cos[...,1]=cos
+        return torch.atan2(sin_cos[..., 0], sin_cos[..., 1])  # [-pi, pi]
+
+    def _sincos_vec(self, step_idx, device):  # step_idx: (B,)
+        # step_idx in [0, period)
+        angle = 2 * math.pi * (step_idx.float() % self.period) / self.period
+        sin = torch.sin(angle)
+        cos = torch.cos(angle)
+        return torch.stack([sin, cos], dim=-1)  # (B,2)
+
+    def encode(self, tokens, pos, genre_id):
+        B, T = tokens.shape
+        g = self.genre_emb(genre_id).unsqueeze(1).expand(B, T, -1)
+        x = torch.cat([self.token_emb(tokens), self.pos_emb(pos.float()), g], dim=-1)
+        _, (h, c) = self.encoder(x)
+        return (h, c)
+
+    def forward(
+        self,
+        src_tokens,
+        src_pos,
+        genre_id,
+        tgt_tokens=None,
+        tgt_pos=None,
+        teacher_forcing: float = 0.5,
+        max_len: int = None,
+        start_token_id: int = 1,  # define in your vocab
+    ):
+        """
+        Train: provide tgt_tokens,tgt_pos → returns logits (B,T,V)
+        Inference: omit tgt_* → greedy decode length=max_len
+        """
+        B, Tsrc = src_tokens.shape
+        device = src_tokens.device
+        h, c = self.encode(src_tokens, src_pos, genre_id)
+
+        if tgt_tokens is not None and tgt_pos is not None:
+            T = tgt_tokens.shape[1]
+            logits_out = []
+            prev_tok = torch.full((B,), start_token_id, dtype=torch.long, device=device)
+            g = self.genre_emb(genre_id)
+            for t in range(T):
+                pe = self.pos_emb(tgt_pos[:, t].float())
+                te = self.token_emb(prev_tok)
+                inp = torch.cat([te, pe, g], dim=-1).unsqueeze(1)  # (B,1,D)
+                out, (h, c) = self.decoder(inp, (h, c))
+                logit = self.proj(out)  # (B,1,V)
+                logits_out.append(logit)
+                use_tf = random.random() < teacher_forcing
+                prev_tok = tgt_tokens[:, t] if use_tf else logit.squeeze(1).argmax(-1)
+            return torch.cat(logits_out, dim=1)  # (B,T,V)
+
+        # Inference
+        assert max_len is not None, "set max_len for inference"
+        # derive current step index from last encoder pos (sin,cos)
+        last_sc = src_pos[:, -1, :]  # (B,2)
+        phase = self._phase_from_sincos(last_sc)  # (B,)
+        # map phase [-pi,pi] -> step idx [0, period)
+        step0 = (
+            (phase + math.pi) / (2 * math.pi) * self.period
+        ).round().long() % self.period
+
+        g = self.genre_emb(genre_id)
+        outputs = []
+        prev_tok = torch.full((B,), start_token_id, dtype=torch.long, device=device)
+        for t in range(max_len):
+            step_t = (step0 + t) % self.period  # (B,)
+            sc_t = self._sincos_vec(step_t, device)  # (B,2)
+            pe = self.pos_emb(sc_t)
+            te = self.token_emb(prev_tok)
+            inp = torch.cat([te, pe, g], dim=-1).unsqueeze(1)
+            out, (h, c) = self.decoder(inp, (h, c))
+            logit = self.proj(out)  # (B,1,V)
+            prev_tok = logit.squeeze(1).argmax(-1)
+            outputs.append(prev_tok.unsqueeze(1))
+        return torch.cat(outputs, dim=1)  # (B,max_len)
+
+    @torch.no_grad()
+    def generate(
+        self,
+        prim_tokens,
+        prim_pos,
+        genre_id,
+        steps: int,
+        temperature: float = 1.0,
+        start_token_id: int = 1,
+    ):
+        """
+        prim_*: (1,T) tensors to build encoder context
+        returns (1, steps) token ids
+        """
+        self.eval()
+        h, c = self.encode(prim_tokens, prim_pos, genre_id)
+        B = prim_tokens.size(0)
+        device = prim_tokens.device
+
+        last_sc = prim_pos[:, -1, :]
+        phase = self._phase_from_sincos(last_sc)
+        step0 = (
+            (phase + math.pi) / (2 * math.pi) * self.period
+        ).round().long() % self.period
+
+        prev = torch.full(
+            (B,), start_token_id, dtype=torch.long, device=prim_tokens.device
+        )
+        out_tokens = []
+        g = self.genre_emb(genre_id)
+        for t in range(steps):
+            step_t = (step0 + t) % self.period
+            sc_t = self._sincos_vec(step_t, device)
+            pe = self.pos_emb(sc_t)
+            te = self.token_emb(prev)
+            x = torch.cat([te, pe, g], dim=-1).unsqueeze(1)
+            y, (h, c) = self.decoder(x, (h, c))
+            logits = self.proj(y).squeeze(1) / max(1e-6, temperature)
+            probs = torch.softmax(logits, dim=-1)
+            prev = torch.multinomial(probs, num_samples=1).squeeze(1)
+            out_tokens.append(prev.unsqueeze(1))
+        return torch.cat(out_tokens, dim=1)
