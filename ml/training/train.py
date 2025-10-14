@@ -47,7 +47,7 @@ def train_epoch(model, loader, opt, crit, device, tf_ratio, unk_id):
 
 
 @torch.no_grad()
-def eval_epoch(model, loader, crit, device):
+def eval_epoch(model, loader, crit, device, unk_id):
     model.eval()
     total, n = 0.0, 0
     for batch in loader:
@@ -56,7 +56,13 @@ def eval_epoch(model, loader, crit, device):
         genre = batch["genre_id"].to(device)
         tgt = batch["targets"].to(device)
         logits = model(
-            tok, pos, genre, tgt_tokens=tgt, tgt_pos=pos, teacher_forcing=0.0
+            tok,
+            pos,
+            genre,
+            tgt_tokens=tgt,
+            tgt_pos=pos,
+            teacher_forcing=0.0,
+            unk_id=unk_id,
         )
         loss = crit(logits.reshape(-1, model.vocab_size), tgt.reshape(-1))
         total += loss.item() * tok.size(0)
@@ -150,7 +156,7 @@ def train(model, device, train_set, val_set, tokenizer, checkpoint_dir):
         tr = train_epoch(
             model, train_loader, opt, crit, device, tf_ratio, tokenizer.unk_id
         )
-        va = eval_epoch(model, val_loader, crit, device)
+        va = eval_epoch(model, val_loader, crit, device, tokenizer.unk_id)
 
         # --- Compute additional metrics on a validation subset ---
         model.eval()
