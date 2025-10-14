@@ -146,6 +146,8 @@ def train(model, device, train_set, val_set, tokenizer, checkpoint_dir):
     print(f"[Loss] Class weights computed for {len(weights)} tokens.")
 
     best = math.inf
+    wait = 0
+    patience = training_cfg["early_stopping_patience"]
     for epoch in range(1, training_cfg["epochs"] + 1):
         tf_ratio = linear_tf(
             epoch - 1,
@@ -220,6 +222,7 @@ def train(model, device, train_set, val_set, tokenizer, checkpoint_dir):
         )
         if va < best:
             best = va
+            wait = 0
             save_ckpt(
                 f"{checkpoint_dir}/seq2seq_best.pt",
                 model,
@@ -227,5 +230,10 @@ def train(model, device, train_set, val_set, tokenizer, checkpoint_dir):
                 epoch,
                 {"train": tr, "val": va, **extra_metrics},
             )
+        else:
+            wait += 1
+            if wait >= patience:
+                print(f"[Early Stopping] No improvement for {patience} epochs.")
+                break
 
     return model

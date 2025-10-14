@@ -26,7 +26,13 @@ def evaluate_model(model, loader, device, tokenizer):
         tgt = batch["targets"].to(device)
 
         logits = model(
-            tok, pos, genre, tgt_tokens=tgt, tgt_pos=pos, teacher_forcing=0.0
+            tok,
+            pos,
+            genre,
+            tgt_tokens=tgt,
+            tgt_pos=pos,
+            teacher_forcing=0.0,
+            unk_id=tokenizer.unk_id,
         )
         preds = logits.argmax(-1).cpu().numpy().flatten()
         targets = tgt.cpu().numpy().flatten()
