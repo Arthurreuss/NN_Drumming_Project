@@ -94,6 +94,8 @@ class Seq2SeqLSTM(nn.Module):
                 inp = torch.cat([te, pe, g], dim=-1).unsqueeze(1)  # (B,1,D)
                 out, (h, c) = self.decoder(inp, (h, c))
                 logit = self.proj(out)  # (B,1,V)
+                if not self.training:
+                    logit[:, :, self.unk_id] = float("-inf")
                 logits_out.append(logit)
                 use_tf = random.random() < teacher_forcing
                 prev_tok = tgt_tokens[:, t] if use_tf else logit.squeeze(1).argmax(-1)

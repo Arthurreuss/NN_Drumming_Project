@@ -130,7 +130,7 @@ def train(model, device, train_set, val_set, tokenizer, checkpoint_dir):
     weights = np.clip(weights, 0, 5)
     weights = weights / weights.mean()
     weights = torch.tensor(weights, dtype=torch.float32, device=device)
-    crit = nn.CrossEntropyLoss(weight=weights)
+    crit = nn.CrossEntropyLoss(weight=weights, ignore_index=tokenizer.unk_id)
     print(f"[Loss] Class weights computed for {len(weights)} tokens.")
 
     best = math.inf
@@ -148,8 +148,6 @@ def train(model, device, train_set, val_set, tokenizer, checkpoint_dir):
         model.eval()
         all_preds, all_targets = [], []
         for i, batch in enumerate(val_loader):
-            if i > 10:  # only first few batches to save time
-                break
             tok = batch["tokens"].to(device)
             pos = batch["positions"].to(device)
             genre = batch["genre_id"].to(device)
