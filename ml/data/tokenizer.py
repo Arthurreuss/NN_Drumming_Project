@@ -242,5 +242,5 @@ class BeatTokenizer:
             min_kept_freq = min(self.freqs[k] for k in kept) if kept else 0
             max_pruned_freq = max(self.freqs[k] for k in pruned)
             print(
-                f"Lowest kept freq: {min_kept_freq}, Highest pruned freq: {max_pruned_freq}"
+                f"[Tokenizer] Lowest kept freq: {min_kept_freq}, Highest pruned freq: {max_pruned_freq}"
             )
