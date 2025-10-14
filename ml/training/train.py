@@ -16,7 +16,7 @@ def linear_tf(epoch, epochs, tf_start, tf_end):
     return tf_start + a * epoch
 
 
-def train_epoch(model, loader, opt, crit, device, tf_ratio):
+def train_epoch(model, loader, opt, crit, device, tf_ratio, unk_id):
     model.train()
     total, n = 0.0, 0
     for batch in loader:
@@ -27,7 +27,13 @@ def train_epoch(model, loader, opt, crit, device, tf_ratio):
 
         opt.zero_grad()
         logits = model(
-            tok, pos, genre, tgt_tokens=tgt, tgt_pos=pos, teacher_forcing=tf_ratio
+            tok,
+            pos,
+            genre,
+            tgt_tokens=tgt,
+            tgt_pos=pos,
+            teacher_forcing=tf_ratio,
+            unk_id=unk_id,
         )
         # CE expects (N,C) and targets (N,)
         loss = crit(logits.reshape(-1, model.vocab_size), tgt.reshape(-1))
@@ -141,7 +147,9 @@ def train(model, device, train_set, val_set, tokenizer, checkpoint_dir):
             training_cfg["teacher_forcing_start"],
             training_cfg["teacher_forcing_end"],
         )
-        tr = train_epoch(model, train_loader, opt, crit, device, tf_ratio)
+        tr = train_epoch(
+            model, train_loader, opt, crit, device, tf_ratio, tokenizer.unk_id
+        )
         va = eval_epoch(model, val_loader, crit, device)
 
         # --- Compute additional metrics on a validation subset ---
@@ -153,7 +161,13 @@ def train(model, device, train_set, val_set, tokenizer, checkpoint_dir):
             genre = batch["genre_id"].to(device)
             tgt = batch["targets"].to(device)
             logits = model(
-                tok, pos, genre, tgt_tokens=tgt, tgt_pos=pos, teacher_forcing=0.0
+                tok,
+                pos,
+                genre,
+                tgt_tokens=tgt,
+                tgt_pos=pos,
+                teacher_forcing=0.0,
+                unk_id=tokenizer.unk_id,
             )
             preds = logits.argmax(-1).cpu().numpy().flatten()
             targets = tgt.cpu().numpy().flatten()

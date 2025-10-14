@@ -6,7 +6,7 @@ pipeline:
   quantization: &q 16 #Options: [16, 32, 64]
   segment_len: &seg_len 512 #len of sample (At least 4x quantization to get one bar)
   model: large    #Options : [small, medium, large]
-  create_dataset: True
+  create_dataset: False
   train_model: True
   inference: 
     enabled: True
@@ -94,7 +94,7 @@ model:
 # ===============================
 
 training:
-  batch_size: 256
+  batch_size: 512
   epochs: 100
   learning_rate: 0.0005
   weight_decay: 0.0001
