@@ -47,14 +47,32 @@ class DrumPreprocessor:
         out /= 127.0
         return out
 
-    def _trim_trailing_zeros_full_segments(self, mat: np.ndarray):
-        """Trim to last nonzero, then floor to full segment multiple."""
-        nz = np.any(mat > 0, axis=1)
-        if not nz.any():
-            return mat[:0]
-        last_idx = np.where(nz)[0][-1] + 1
-        trimmed_len = (last_idx // self.segment_len) * self.segment_len
-        return mat[:trimmed_len]
+    def _trim_silence_full_segments(self, mat: np.ndarray):
+        """Trim leading and trailing all-zero 16-timestep blocks, keeping full segments."""
+        if mat.size == 0:
+            return mat
+
+        beat = 16
+        n_beats = mat.shape[0] // beat
+
+        start = 0
+        end = n_beats
+
+        # trim silent beats from front
+        for i in range(n_beats):
+            if np.any(mat[i * beat : (i + 1) * beat] > 0):
+                start = i
+                break
+
+        # trim silent beats from back
+        for i in range(n_beats - 1, -1, -1):
+            if np.any(mat[i * beat : (i + 1) * beat] > 0):
+                end = i + 1
+                break
+
+        trimmed = mat[start * beat : end * beat]
+        trimmed_len = (trimmed.shape[0] // self.segment_len) * self.segment_len
+        return trimmed[:trimmed_len]
 
     def _split_files_by_genre(self, midi_files: list[Path]):
         """Split files into train/val/test while maintaining genre balance."""
@@ -139,7 +157,7 @@ class DrumPreprocessor:
 
             for name, mat in tracks.items():
                 mat = self._simplify_matrix(mat, self.pitch_groups)
-                mat = self._trim_trailing_zeros_full_segments(mat)
+                mat = self._trim_silence_full_segments(mat)
                 n_steps = mat.shape[0]
                 if n_steps < self.segment_len:
                     continue
@@ -156,8 +174,10 @@ class DrumPreprocessor:
                         break
 
                     seg = mat[s : s + self.segment_len]
-                    tokens = [self.tokenizer.tokenize(vec) for vec in seg]
+                    tokens = self.tokenizer.tokenize(seg)
+
                     positions = self._cyclic_positional_encoding()
+                    beat_positions = positions[:: self.quantization][: len(tokens)]
 
                     out_path = (
                         genre_dir / f"{midi_path.stem}_{name}_seg{s}_id{saved}.npz"
@@ -165,7 +185,7 @@ class DrumPreprocessor:
                     np.savez(
                         out_path,
                         tokens=np.array(tokens, dtype=np.int32),
-                        positions=positions,
+                        positions=beat_positions,
                         genre=genre,
                     )
 
@@ -183,10 +203,60 @@ class DrumPreprocessor:
         for g in sorted(self.genres):
             print(f"  {g}: {counts[g]} samples")
 
+    def _filter_dataset_unknowns(self, dataset_dir, unk_id=0, unk_threshold=0.5):
+        """
+        Remove dataset samples (.npz files) where more than `unk_threshold`
+        fraction of tokens are <UNK> (id == unk_id).
+        """
+        dataset_dir = Path(dataset_dir)
+        npz_files = list(dataset_dir.rglob("*.npz"))
+        removed = 0
+        total = len(npz_files)
+
+        for file in npz_files:
+            data = np.load(file, allow_pickle=True)
+            tokens = data["tokens"]
+            unk_ratio = np.mean(tokens == unk_id)
+            if unk_ratio >= unk_threshold:
+                file.unlink()  # delete file
+                removed += 1
+
+        print(
+            f"[Filter] {removed}/{total} samples removed "
+            f"({removed/total*100:.1f}%) — unk_ratio > {unk_threshold}"
+        )
+
+    def _remap_tokens_to_pruned_vocab(self, dataset_dir):
+        """
+        Replace all tokens not in the pruned vocab with UNK id.
+        """
+        dataset_dir = Path(dataset_dir)
+        npz_files = list(dataset_dir.rglob("*.npz"))
+        vocab_keys = set(self.tokenizer.vocab.values())
+        unk_id = self.tokenizer.unk_id
+        remapped = 0
+
+        for f in npz_files:
+            data = np.load(f, allow_pickle=True)
+            tokens = data["tokens"]
+
+            invalid_mask = ~np.isin(tokens, list(vocab_keys))
+            if np.any(invalid_mask):
+                tokens[invalid_mask] = unk_id
+                remapped += 1
+                np.savez(
+                    f,
+                    tokens=tokens,
+                    positions=data["positions"],
+                    genre=data["genre"],
+                )
+
+        print(f"[Remap] {remapped}/{len(npz_files)} files contained pruned tokens.")
+
     def preprocess_dataset(self):
         midi_dir = Path(self.midi_dir)
         midi_files = list(midi_dir.rglob("*.mid")) + list(midi_dir.rglob("*.midi"))
-        random.shuffle(midi_files)  # shuffle globally
+        random.shuffle(midi_files)
         print(f"[Preprocessor] Found {len(midi_files)} MIDI files")
 
         splits = self._split_files_by_genre(midi_files)
@@ -206,11 +276,26 @@ class DrumPreprocessor:
             samples_per_genre = split_target // len(self.genres)
 
             self._process_midi_files(files, out_dir, samples_per_genre, split_target)
-            datasets[split] = DrumDataset(out_dir, include_genre=True)
 
         self.tokenizer.prune(min_freq=self.dataset_cfg["token_min_freq"])
         self.tokenizer.save()
         print(f"[Tokenizer] Vocabulary size: {len(self.tokenizer)} tokens")
+        self.tokenizer.analyze_tokens()
+        self._remap_tokens_to_pruned_vocab(base_dir)
+
+        for split in ["train", "val", "test"]:
+            out_dir = base_dir / split
+            datasets[split] = DrumDataset(out_dir, include_genre=True)
+
+        # for split in ["train", "val", "test"]:
+        #     self._filter_dataset_unknowns(
+        #         Path(self.save_dir)
+        #         / f"q_{self.quantization}"
+        #         / f"seg_{self.segment_len}"
+        #         / split,
+        #         unk_id=self.tokenizer.unk_id,
+        #         unk_threshold=0.9,
+        #     )
         print("[Preprocessor] Preprocessing complete.\n")
 
         return datasets["train"], datasets["val"], datasets["test"], self.tokenizer

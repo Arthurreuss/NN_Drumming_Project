@@ -10,7 +10,7 @@ from torch.utils.data import DataLoader
 from ml.data.dataset import DrumDataset
 from ml.data.midi import Midi
 from ml.data.preprocess import DrumPreprocessor
-from ml.data.tokenizer import SimpleTokenizer
+from ml.data.tokenizer import BeatTokenizer
 from ml.models.lstm import Seq2SeqLSTM
 from ml.training.train import train
 from ml.utils.cfg import load_config
@@ -38,9 +38,7 @@ class Pipeline:
         )
 
         self.midi_reader = Midi(self.pipeline_cfg["quantization"])
-        self.tokenizer = SimpleTokenizer(
-            path=f"{self.dataset_path}/simple_tokenizer.npy"
-        )
+        self.tokenizer = BeatTokenizer(path=f"{self.dataset_path}/beat_tokenizer.npy")
         self.preprocessor = DrumPreprocessor(self.midi_reader, self.tokenizer)
         self.train_set = None
         self.val_set = None
@@ -81,16 +79,17 @@ class Pipeline:
             self.train_set, self.val_set, self.test_set, self.tokenizer = (
                 self.preprocessor.preprocess_dataset()
             )
+
         else:
             try:
                 self.train_set = DrumDataset(
-                    self.dataset_path / "train_dir", include_genre=True
+                    self.dataset_path / "train", include_genre=True
                 )
                 self.val_set = DrumDataset(
-                    self.dataset_path / "val_dir", include_genre=True
+                    self.dataset_path / "val", include_genre=True
                 )
                 self.test_set = DrumDataset(
-                    self.dataset_path / "test_dir", include_genre=True
+                    self.dataset_path / "test", include_genre=True
                 )
             except Exception as e:
                 print(f"[Pipeline] Error loading datasets: {e}")
@@ -150,7 +149,7 @@ class Pipeline:
             for t in gen_tokens:
                 vec = self.tokenizer.detokenize(int(t))
                 detok.append(vec)
-            matrix = np.stack(detok, axis=0)  # (T, 9)
+            matrix = np.concat(detok, axis=0)  # (T, 9)
 
             if self.pipeline_cfg["inference"]["plot"]:
                 genre_idx = int(genre_id.squeeze().cpu().item())

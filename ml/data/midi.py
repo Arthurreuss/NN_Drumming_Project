@@ -99,7 +99,7 @@ class Midi:
         Convert a (T,9) drumroll matrix (values 0–1) into a clean, playable MIDI drum file.
         """
         cfg = load_config()
-        pitch_groups = cfg["dataset"]["pitch_groups"]
+        pitch_groups = cfg["dataset_creation"]["pitch_groups"]
 
         if drumroll_matrix.ndim != 2 or drumroll_matrix.shape[1] != len(pitch_groups):
             raise ValueError(f"Expected matrix shape (T,{len(pitch_groups)})")

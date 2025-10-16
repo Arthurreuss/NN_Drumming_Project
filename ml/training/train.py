@@ -16,7 +16,7 @@ def linear_tf(epoch, epochs, tf_start, tf_end):
     return tf_start + a * epoch
 
 
-def train_epoch(model, loader, opt, crit, device, tf_ratio):
+def train_epoch(model, loader, opt, crit, device, tf_ratio, unk_id):
     model.train()
     total, n = 0.0, 0
     for batch in loader:
@@ -27,7 +27,13 @@ def train_epoch(model, loader, opt, crit, device, tf_ratio):
 
         opt.zero_grad()
         logits = model(
-            tok, pos, genre, tgt_tokens=tgt, tgt_pos=pos, teacher_forcing=tf_ratio
+            tok,
+            pos,
+            genre,
+            tgt_tokens=tgt,
+            tgt_pos=pos,
+            teacher_forcing=tf_ratio,
+            unk_id=unk_id,
         )
         # CE expects (N,C) and targets (N,)
         loss = crit(logits.reshape(-1, model.vocab_size), tgt.reshape(-1))
@@ -41,7 +47,7 @@ def train_epoch(model, loader, opt, crit, device, tf_ratio):
 
 
 @torch.no_grad()
-def eval_epoch(model, loader, crit, device):
+def eval_epoch(model, loader, crit, device, unk_id):
     model.eval()
     total, n = 0.0, 0
     for batch in loader:
@@ -50,7 +56,13 @@ def eval_epoch(model, loader, crit, device):
         genre = batch["genre_id"].to(device)
         tgt = batch["targets"].to(device)
         logits = model(
-            tok, pos, genre, tgt_tokens=tgt, tgt_pos=pos, teacher_forcing=0.0
+            tok,
+            pos,
+            genre,
+            tgt_tokens=tgt,
+            tgt_pos=pos,
+            teacher_forcing=0.0,
+            unk_id=unk_id,
         )
         loss = crit(logits.reshape(-1, model.vocab_size), tgt.reshape(-1))
         total += loss.item() * tok.size(0)
@@ -130,10 +142,12 @@ def train(model, device, train_set, val_set, tokenizer, checkpoint_dir):
     weights = np.clip(weights, 0, 5)
     weights = weights / weights.mean()
     weights = torch.tensor(weights, dtype=torch.float32, device=device)
-    crit = nn.CrossEntropyLoss(weight=weights)
+    crit = nn.CrossEntropyLoss(weight=weights, ignore_index=tokenizer.unk_id)
     print(f"[Loss] Class weights computed for {len(weights)} tokens.")
 
     best = math.inf
+    wait = 0
+    patience = training_cfg["early_stopping_patience"]
     for epoch in range(1, training_cfg["epochs"] + 1):
         tf_ratio = linear_tf(
             epoch - 1,
@@ -141,21 +155,27 @@ def train(model, device, train_set, val_set, tokenizer, checkpoint_dir):
             training_cfg["teacher_forcing_start"],
             training_cfg["teacher_forcing_end"],
         )
-        tr = train_epoch(model, train_loader, opt, crit, device, tf_ratio)
-        va = eval_epoch(model, val_loader, crit, device)
+        tr = train_epoch(
+            model, train_loader, opt, crit, device, tf_ratio, tokenizer.unk_id
+        )
+        va = eval_epoch(model, val_loader, crit, device, tokenizer.unk_id)
 
         # --- Compute additional metrics on a validation subset ---
         model.eval()
         all_preds, all_targets = [], []
         for i, batch in enumerate(val_loader):
-            if i > 10:  # only first few batches to save time
-                break
             tok = batch["tokens"].to(device)
             pos = batch["positions"].to(device)
             genre = batch["genre_id"].to(device)
             tgt = batch["targets"].to(device)
             logits = model(
-                tok, pos, genre, tgt_tokens=tgt, tgt_pos=pos, teacher_forcing=0.0
+                tok,
+                pos,
+                genre,
+                tgt_tokens=tgt,
+                tgt_pos=pos,
+                teacher_forcing=0.0,
+                unk_id=tokenizer.unk_id,
             )
             preds = logits.argmax(-1).cpu().numpy().flatten()
             targets = tgt.cpu().numpy().flatten()
@@ -202,6 +222,7 @@ def train(model, device, train_set, val_set, tokenizer, checkpoint_dir):
         )
         if va < best:
             best = va
+            wait = 0
             save_ckpt(
                 f"{checkpoint_dir}/seq2seq_best.pt",
                 model,
@@ -209,5 +230,10 @@ def train(model, device, train_set, val_set, tokenizer, checkpoint_dir):
                 epoch,
                 {"train": tr, "val": va, **extra_metrics},
             )
+        else:
+            wait += 1
+            if wait >= patience:
+                print(f"[Early Stopping] No improvement for {patience} epochs.")
+                break
 
     return model

@@ -3,16 +3,16 @@
 # ===============================
 
 pipeline:
-  quantization: &q 64 #Options: [16, 32, 64]
-  segment_len: &seg_len 1024 #len of sample (At least 4x quantization to get one bar)
-  model: medium    #Options : [small, medium, large]
-  create_dataset: True
-  train_model: True
+  quantization: &q 16 #Options: [16, 32, 64]
+  segment_len: &seg_len 512 #len of sample (At least 4x quantization to get one bar)
+  model: large    #Options : [small, medium, large]
+  create_dataset: False
+  train_model: False
   inference: 
-    enabled: False
-    genre: jazz #Options : [afrocuban, dance, funk, hiphop, jazz, latin, neworleans, pop, reggae, rock, soul] 
-    generation_length: 256
-    period: 64 #length of one bar (4xquantization)
+    enabled: True
+    genre: rock #Options : [afrocuban, dance, funk, hiphop, jazz, latin, neworleans, pop, reggae, rock, soul] 
+    generation_length: 64
+    period: 4 #length of one bar
     temperature: 0.99
     plot: True # saves to outputs
     create_midi: True #saves to outputs
@@ -25,7 +25,7 @@ pipeline:
 
 dataset_creation:
   seed: 42
-  total_target: 2000 # total number of training samples
+  total_target: 240000 # total number of training samples
   raw_data_dir: dataset/e-gmd-v1.0.0 # path to raw midi files
   preprocessed_data_dir: dataset/processed # path to save processed data
   quantization: *q #Options: [16, 32, 64]
@@ -94,12 +94,13 @@ model:
 # ===============================
 
 training:
-  batch_size: 256
-  epochs: 10
+  batch_size: 512
+  epochs: 100
   learning_rate: 0.0005
   weight_decay: 0.0001
-  teacher_forcing_start: 0.8
-  teacher_forcing_end: 0
+  teacher_forcing_start: 0.5
+  teacher_forcing_end: 0.0
   checkpoint_dir: checkpoints
+  early_stopping_patience: 5
 
 
