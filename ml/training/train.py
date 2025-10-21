@@ -220,14 +220,6 @@ def train(cfg, model, device, train_set, val_set, tokenizer, checkpoint_dir):
                 ]
             )
 
-        # save checkpoints
-        save_ckpt(
-            f"{checkpoint_dir}/seq2seq_epoch_{epoch:03d}.pt",
-            model,
-            opt,
-            epoch,
-            {"train": tr, "val": va, **extra_metrics},
-        )
         if va < best:
             best = va
             wait = 0
