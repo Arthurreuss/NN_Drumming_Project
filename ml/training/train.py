@@ -8,8 +8,7 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
 
-from ml.utils.cfg import load_config
-from ml.utils.metrics import compute_eval_metrics
+from ml.evaluation.metrics import compute_eval_metrics
 
 
 def linear_tf(epoch, epochs, tf_start, tf_end):
@@ -42,13 +41,14 @@ def train_epoch(model, loader, opt, crit, device, tf_ratio, unk_id):
         nn.utils.clip_grad_norm_(model.parameters(), 1.0)
         opt.step()
 
-        total += loss.item() * tok.size(0)
-        n += tok.size(0)
-    return total / n
+        valid = (tgt.reshape(-1) != unk_id).sum().item()
+        total += loss.item() * valid
+        n += valid
+    return total / max(1, n)
 
 
 @torch.no_grad()
-def eval_epoch(model, loader, crit, device, unk_id):
+def eval_epoch(model, loader, crit, device, tf_ratio, unk_id):
     model.eval()
     total, n = 0.0, 0
     for batch in loader:
@@ -62,13 +62,14 @@ def eval_epoch(model, loader, crit, device, unk_id):
             genre,
             tgt_tokens=tgt,
             tgt_pos=pos,
-            teacher_forcing=0.0,
+            teacher_forcing=tf_ratio,
             unk_id=unk_id,
         )
         loss = crit(logits.reshape(-1, model.vocab_size), tgt.reshape(-1))
-        total += loss.item() * tok.size(0)
-        n += tok.size(0)
-    return total / n
+        valid = (tgt.reshape(-1) != unk_id).sum().item()
+        total += loss.item() * valid
+        n += valid
+    return total / max(1, n)
 
 
 def save_ckpt(path, model, opt, epoch, metrics: dict):
@@ -84,8 +85,7 @@ def save_ckpt(path, model, opt, epoch, metrics: dict):
     )
 
 
-def train(model, device, train_set, val_set, tokenizer, checkpoint_dir):
-    cfg = load_config()
+def train(cfg, model, device, train_set, val_set, tokenizer, checkpoint_dir):
     training_cfg = cfg["training"]
 
     log_path = f"{checkpoint_dir}/training_log.csv"
@@ -159,7 +159,7 @@ def train(model, device, train_set, val_set, tokenizer, checkpoint_dir):
         tr = train_epoch(
             model, train_loader, opt, crit, device, tf_ratio, tokenizer.unk_id
         )
-        va = eval_epoch(model, val_loader, crit, device, tokenizer.unk_id)
+        va = eval_epoch(model, val_loader, crit, device, 1.0, tokenizer.unk_id)
 
         # --- Compute additional metrics on a validation subset ---
         model.eval()

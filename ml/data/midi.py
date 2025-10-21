@@ -96,11 +96,10 @@ class Midi:
                 del self.tracks[name]
         return self.tracks
 
-    def create_midi(self, drumroll_matrix, output_path, tempo=100, threshold=0.3):
+    def create_midi(self, cfg, drumroll_matrix, output_path, tempo=100, threshold=0.3):
         """
         Convert a (T,9) drumroll matrix (values 0–1) into a clean, playable MIDI drum file.
         """
-        cfg = load_config()
         pitch_groups = cfg["dataset_creation"]["pitch_groups"]
 
         if drumroll_matrix.ndim != 2 or drumroll_matrix.shape[1] != len(pitch_groups):

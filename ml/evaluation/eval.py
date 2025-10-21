@@ -1,16 +1,8 @@
-import csv
-import os
-
 import numpy as np
 import torch
-from torch.utils.data import DataLoader
 from tqdm import tqdm
 
-from ml.data.dataset import DrumDataset
-from ml.data.tokenizer import SimpleTokenizer
-from ml.models.lstm import Seq2SeqLSTM
-from ml.utils.cfg import load_config
-from ml.utils.metrics import compute_eval_metrics
+from ml.evaluation.metrics import compute_eval_metrics
 
 
 @torch.no_grad()

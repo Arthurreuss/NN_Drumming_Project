@@ -95,8 +95,6 @@ class Seq2SeqLSTM(nn.Module):
                 inp = torch.cat([te, pe, g], dim=-1).unsqueeze(1)  # (B,1,D)
                 out, (h, c) = self.decoder(inp, (h, c))
                 logit = self.proj(out)  # (B,1,V)
-                if not self.training:
-                    logit[:, :, unk_id] = float("-inf")
                 logits_out.append(logit)
                 use_tf = random.random() < teacher_forcing
                 prev_tok = tgt_tokens[:, t] if use_tf else logit.squeeze(1).argmax(-1)
@@ -123,6 +121,8 @@ class Seq2SeqLSTM(nn.Module):
             inp = torch.cat([te, pe, g], dim=-1).unsqueeze(1)
             out, (h, c) = self.decoder(inp, (h, c))
             logit = self.proj(out)  # (B,1,V)
+            logit[:, :, unk_id] = float("-inf")
+
             prev_tok = logit.squeeze(1).argmax(-1)
             outputs.append(prev_tok.unsqueeze(1))
         return torch.cat(outputs, dim=1)  # (B,max_len)
@@ -133,6 +133,7 @@ class Seq2SeqLSTM(nn.Module):
         prim_tokens,
         prim_pos,
         genre_id,
+        unk_id,
         steps: int,
         temperature: float = 1.0,
         start_token_id: int = 1,
@@ -165,6 +166,8 @@ class Seq2SeqLSTM(nn.Module):
             x = torch.cat([te, pe, g], dim=-1).unsqueeze(1)
             y, (h, c) = self.decoder(x, (h, c))
             logits = self.proj(y).squeeze(1) / max(1e-6, temperature)
+            logits[:, unk_id] = float("-inf")
+
             probs = torch.softmax(logits, dim=-1)
             prev = torch.multinomial(probs, num_samples=1).squeeze(1)
             out_tokens.append(prev.unsqueeze(1))

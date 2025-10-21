@@ -3,12 +3,10 @@ from collections import Counter
 
 import numpy as np
 
-from ml.utils.cfg import load_config
-
 
 class SimpleTokenizer:
-    def __init__(self, path, vocab=None):
-        self.cfg = load_config()
+    def __init__(self, cfg, path, vocab=None):
+        self.cfg = cfg
         self.path = path
         self.freqs = Counter()
         self.unk_token = "<UNK>"
@@ -106,8 +104,8 @@ class SimpleTokenizer:
 
 
 class BeatTokenizer:
-    def __init__(self, path, vocab=None):
-        self.cfg = load_config()
+    def __init__(self, cfg, path, vocab=None):
+        self.cfg = cfg
         self.path = path
         self.freqs = Counter()
         self.unk_token = "<UNK>"

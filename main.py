@@ -1,3 +1,4 @@
+import argparse
 import logging
 import os
 import sys
@@ -12,12 +13,29 @@ from ml.utils.cfg import load_config
 
 
 def main():
-    os.makedirs("logs", exist_ok=True)
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--model",
+        type=str,
+        choices=["small", "medium", "large"],
+        required=True,
+        help="Model size to use",
+    )
+    parser.add_argument(
+        "--learning_rate",
+        type=float,
+        choices=[0.001, 0.0005, 0.0001],
+        required=True,
+        help="Learning rate to override",
+    )
+    args = parser.parse_args()
+
     cfg = load_config()
-    model_size = cfg["pipeline"]["model"]
-    q = cfg["pipeline"]["quantization"]
-    segment_len = cfg["pipeline"]["segment_len"]
-    logfile = f"logs/{model_size}_q{q}_seg{segment_len}{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
+    cfg["pipeline"]["model"] = args.model
+    cfg["training"]["learning_rate"] = args.learning_rate
+
+    os.makedirs("logs", exist_ok=True)
+    logfile = f"logs/{args.model}_lr{args.learning_rate}{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
 
     logging.basicConfig(
         level=logging.INFO,
@@ -28,7 +46,7 @@ def main():
 
     logger = logging.getLogger(__name__)
     logger.info("Initializing pipeline...")
-    pipeline = Pipeline()
+    pipeline = Pipeline(cfg)
     pipeline.run()
 
 

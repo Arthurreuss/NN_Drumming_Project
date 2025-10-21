@@ -9,12 +9,11 @@ import numpy as np
 from tqdm import tqdm
 
 from ml.data.dataset import DrumDataset
-from ml.utils.cfg import load_config
 
 
 class DrumPreprocessor:
-    def __init__(self, midi_reader, tokenizer):
-        self.cfg = load_config()
+    def __init__(self, cfg, midi_reader, tokenizer):
+        self.cfg = cfg
         self.dataset_cfg = self.cfg["dataset_creation"]
         self.midi_reader = midi_reader
         self.tokenizer = tokenizer
@@ -288,17 +287,8 @@ class DrumPreprocessor:
 
         for split in ["train", "val", "test"]:
             out_dir = base_dir / split
-            datasets[split] = DrumDataset(out_dir, include_genre=True)
+            datasets[split] = DrumDataset(self.cfg, out_dir, include_genre=True)
 
-        # for split in ["train", "val", "test"]:
-        #     self._filter_dataset_unknowns(
-        #         Path(self.save_dir)
-        #         / f"q_{self.quantization}"
-        #         / f"seg_{self.segment_len}"
-        #         / split,
-        #         unk_id=self.tokenizer.unk_id,
-        #         unk_threshold=0.9,
-        #     )
         logging.info("[Preprocessor] Preprocessing complete.\n")
 
         return datasets["train"], datasets["val"], datasets["test"], self.tokenizer

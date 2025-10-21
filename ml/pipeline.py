@@ -12,16 +12,15 @@ from ml.data.dataset import DrumDataset
 from ml.data.midi import Midi
 from ml.data.preprocess import DrumPreprocessor
 from ml.data.tokenizer import BeatTokenizer
+from ml.evaluation.eval import evaluate_model
 from ml.models.lstm import Seq2SeqLSTM
 from ml.training.train import train
-from ml.utils.cfg import load_config
-from ml.utils.eval import evaluate_model
 from scripts.plotting_inference import plot_drum_matrix
 
 
 class Pipeline:
-    def __init__(self):
-        self.cfg = load_config()
+    def __init__(self, cfg):
+        self.cfg = cfg
         self.dataset_cfg = self.cfg["dataset_creation"]
         self.pipeline_cfg = self.cfg["pipeline"]
         self.training_cfg = self.cfg["training"]
@@ -39,8 +38,10 @@ class Pipeline:
         )
 
         self.midi_reader = Midi(self.pipeline_cfg["quantization"])
-        self.tokenizer = BeatTokenizer(path=f"{self.dataset_path}/beat_tokenizer.npy")
-        self.preprocessor = DrumPreprocessor(self.midi_reader, self.tokenizer)
+        self.tokenizer = BeatTokenizer(
+            self.cfg, path=f"{self.dataset_path}/beat_tokenizer.npy"
+        )
+        self.preprocessor = DrumPreprocessor(self.cfg, self.midi_reader, self.tokenizer)
         self.train_set = None
         self.val_set = None
         self.test_set = None
@@ -86,13 +87,13 @@ class Pipeline:
         else:
             try:
                 self.train_set = DrumDataset(
-                    self.dataset_path / "train", include_genre=True
+                    self.cfg, self.dataset_path / "train", include_genre=True
                 )
                 self.val_set = DrumDataset(
-                    self.dataset_path / "val", include_genre=True
+                    self.cfg, self.dataset_path / "val", include_genre=True
                 )
                 self.test_set = DrumDataset(
-                    self.dataset_path / "test", include_genre=True
+                    self.cfg, self.dataset_path / "test", include_genre=True
                 )
             except Exception as e:
                 logging.info(f"[Pipeline] Error loading datasets: {e}")
@@ -104,6 +105,7 @@ class Pipeline:
         # train
         if self.pipeline_cfg["train_model"]:
             self.model = train(
+                self.cfg,
                 self.model,
                 self.device,
                 self.train_set,
@@ -143,6 +145,7 @@ class Pipeline:
                 prim_tok,
                 prim_pos,
                 genre_id,
+                unk_id=self.tokenizer.unk_id,
                 steps=self.pipeline_cfg["inference"]["generation_length"],
                 temperature=self.pipeline_cfg["inference"]["temperature"],
             )
@@ -166,6 +169,7 @@ class Pipeline:
             if self.pipeline_cfg["inference"]["create_midi"]:
                 os.makedirs("outputs", exist_ok=True)
                 self.midi_reader.create_midi(
+                    self.cfg,
                     matrix,
                     output_path=(
                         f"outputs/{self.pipeline_cfg['inference']['genre']}_{idx}.mid"
