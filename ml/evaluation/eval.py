@@ -16,15 +16,17 @@ def evaluate_model(model, loader, device, tokenizer):
         pos = batch["positions"].to(device)
         genre = batch["genre_id"].to(device)
         tgt = batch["targets"].to(device)
+        bpm = batch["bpm"].to(device)
 
         logits = model(
             tok,
             pos,
             genre,
+            unk_id=tokenizer.unk_id,
+            bpm=bpm,
             tgt_tokens=tgt,
             tgt_pos=pos,
             teacher_forcing=0.0,
-            unk_id=tokenizer.unk_id,
         )
         preds = logits.argmax(-1).cpu().numpy().flatten()
         targets = tgt.cpu().numpy().flatten()

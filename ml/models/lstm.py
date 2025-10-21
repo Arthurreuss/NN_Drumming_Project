@@ -13,6 +13,7 @@ class Seq2SeqLSTM(nn.Module):
         token_embed_dim: int,
         pos_embed_dim: int,
         genre_embed_dim: int,
+        bpm_embed_dim: int,
         hidden: int,
         layers: int,
         period: int,
@@ -24,9 +25,10 @@ class Seq2SeqLSTM(nn.Module):
         self.token_emb = nn.Embedding(vocab_size, token_embed_dim)
         self.pos_emb = nn.Linear(2, pos_embed_dim)
         self.genre_emb = nn.Embedding(num_genres, genre_embed_dim)
+        self.bpm_emb = nn.Linear(1, bpm_embed_dim)
 
-        enc_in = token_embed_dim + pos_embed_dim + genre_embed_dim
-        dec_in = token_embed_dim + pos_embed_dim + genre_embed_dim
+        enc_in = token_embed_dim + pos_embed_dim + genre_embed_dim + bpm_embed_dim
+        dec_in = token_embed_dim + pos_embed_dim + genre_embed_dim + bpm_embed_dim
 
         self.encoder = nn.LSTM(
             input_size=enc_in,
@@ -57,10 +59,11 @@ class Seq2SeqLSTM(nn.Module):
         cos = torch.cos(angle)
         return torch.stack([sin, cos], dim=-1)  # (B,2)
 
-    def encode(self, tokens, pos, genre_id):
+    def encode(self, tokens, pos, genre_id, bpm):
         B, T = tokens.shape
         g = self.genre_emb(genre_id).unsqueeze(1).expand(B, T, -1)
-        x = torch.cat([self.token_emb(tokens), self.pos_emb(pos.float()), g], dim=-1)
+        b = self.bpm_emb(bpm.unsqueeze(1).float()).expand(B, T, -1)
+        x = torch.cat([self.token_emb(tokens), self.pos_emb(pos.float()), g, b], dim=-1)
         _, (h, c) = self.encoder(x)
         return (h, c)
 
@@ -70,6 +73,7 @@ class Seq2SeqLSTM(nn.Module):
         src_pos,
         genre_id,
         unk_id,
+        bpm,
         tgt_tokens=None,
         tgt_pos=None,
         teacher_forcing: float = 0.5,
@@ -82,7 +86,7 @@ class Seq2SeqLSTM(nn.Module):
         """
         B, Tsrc = src_tokens.shape
         device = src_tokens.device
-        h, c = self.encode(src_tokens, src_pos, genre_id)
+        h, c = self.encode(src_tokens, src_pos, genre_id, bpm)
 
         if tgt_tokens is not None and tgt_pos is not None:
             T = tgt_tokens.shape[1]
@@ -92,7 +96,8 @@ class Seq2SeqLSTM(nn.Module):
             for t in range(T):
                 pe = self.pos_emb(tgt_pos[:, t].float())
                 te = self.token_emb(prev_tok)
-                inp = torch.cat([te, pe, g], dim=-1).unsqueeze(1)  # (B,1,D)
+                b = self.bpm_emb(bpm.float())
+                inp = torch.cat([te, pe, g, b], dim=-1).unsqueeze(1)  # (B,1,D)
                 out, (h, c) = self.decoder(inp, (h, c))
                 logit = self.proj(out)  # (B,1,V)
                 logits_out.append(logit)
@@ -118,7 +123,8 @@ class Seq2SeqLSTM(nn.Module):
             sc_t = self._sincos_vec(step_t, device)  # (B,2)
             pe = self.pos_emb(sc_t)
             te = self.token_emb(prev_tok)
-            inp = torch.cat([te, pe, g], dim=-1).unsqueeze(1)
+            b = self.bpm_emb(bpm.float())
+            inp = torch.cat([te, pe, g, b], dim=-1).unsqueeze(1)
             out, (h, c) = self.decoder(inp, (h, c))
             logit = self.proj(out)  # (B,1,V)
             logit[:, :, unk_id] = float("-inf")
@@ -134,6 +140,7 @@ class Seq2SeqLSTM(nn.Module):
         prim_pos,
         genre_id,
         unk_id,
+        bpm,
         steps: int,
         temperature: float = 1.0,
         start_token_id: int = 1,
@@ -143,7 +150,7 @@ class Seq2SeqLSTM(nn.Module):
         returns (1, steps) token ids
         """
         self.eval()
-        h, c = self.encode(prim_tokens, prim_pos, genre_id)
+        h, c = self.encode(prim_tokens, prim_pos, genre_id, bpm)
         B = prim_tokens.size(0)
         device = prim_tokens.device
 
@@ -163,7 +170,9 @@ class Seq2SeqLSTM(nn.Module):
             sc_t = self._sincos_vec(step_t, device)
             pe = self.pos_emb(sc_t)
             te = self.token_emb(prev)
-            x = torch.cat([te, pe, g], dim=-1).unsqueeze(1)
+            b = self.bpm_emb(bpm.float())
+
+            x = torch.cat([te, pe, g, b], dim=-1).unsqueeze(1)
             y, (h, c) = self.decoder(x, (h, c))
             logits = self.proj(y).squeeze(1) / max(1e-6, temperature)
             logits[:, unk_id] = float("-inf")

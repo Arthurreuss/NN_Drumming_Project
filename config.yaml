@@ -14,10 +14,9 @@ pipeline:
     generation_length: 64
     period: 4 #length of one bar
     temperature: 0.99
-    plot: True # saves to outputs
-    create_midi: True #saves to outputs
+    plot: False # saves to outputs
+    create_midi: False #saves to outputs
   evaluate: True
-
 
 # ===============================
 # Dataset Configuration
@@ -74,6 +73,7 @@ model:
     token_embed_dim: 64
     pos_embed_dim: 4  
     genre_embed_dim: 8
+    bpm_embed_dim: 4
   medium:
     hidden_dim: 256
     num_layers: 2
@@ -81,6 +81,7 @@ model:
     token_embed_dim: 128
     pos_embed_dim: 8  
     genre_embed_dim: 8
+    bpm_embed_dim: 4
   large:
     hidden_dim: 512
     num_layers: 3
@@ -88,13 +89,14 @@ model:
     token_embed_dim: 256
     pos_embed_dim: 16  
     genre_embed_dim: 16
+    bpm_embed_dim: 4
 
 # ===============================
 # Training Configuration
 # ===============================
 
 training:
-  batch_size: 512
+  batch_size: 4096
   epochs: 200
   learning_rate: 0.0005
   weight_decay: 0.0001

@@ -37,4 +37,5 @@ class DrumDataset(Dataset):
             "positions": pos_in,
             "genre_id": genre_id,
             "targets": X_out,
+            "bpm": data["bpm"],
         }

@@ -17,7 +17,15 @@ def plot_drum_matrix(matrix, title="Generated Drum Pattern", save_path=None):
         "Ride",
     ]
     fig, ax = plt.subplots(figsize=(10, 4))
-    ax.imshow(matrix.T, aspect="auto", origin="lower", cmap="magma", vmin=0, vmax=1)
+    ax.imshow(
+        matrix.T,
+        aspect="auto",
+        origin="lower",
+        cmap="magma",
+        vmin=0,
+        vmax=1,
+        interpolation="none",
+    )
     ax.set_yticks(range(len(instruments)))
     ax.set_yticklabels(instruments)
     ax.set_xlabel("Timesteps")

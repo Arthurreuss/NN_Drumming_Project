@@ -35,7 +35,11 @@ class DrumPreprocessor:
         genres = self.dataset_cfg["genres"]
         for g in genres:
             if g.lower() in name.lower() and "beat" in name.lower():
-                return g
+                pattern = r"_(\d+)_beat"
+                match = re.search(pattern, name.lower())
+                if match:
+                    bpm = int(match.group(1))
+                    return g, bpm
         return "unknown", -1
 
     def _simplify_matrix(self, mat: np.ndarray, pitch_groups: dict[str, list[int]]):
@@ -79,7 +83,7 @@ class DrumPreprocessor:
         rng = random.Random(self.seed)
         genre_files = defaultdict(list)
         for f in midi_files:
-            genre = self._extract_metadata(f)
+            genre, bpm = self._extract_metadata(f)
             if genre in self.genres:
                 genre_files[genre].append(f)
 
@@ -145,8 +149,10 @@ class DrumPreprocessor:
         random.shuffle(midi_files)
 
         for midi_path in midi_files:
-            genre = self._extract_metadata(midi_path)
+            genre, bpm = self._extract_metadata(midi_path)
             if genre not in self.genres:
+                continue
+            if 0 > bpm > 250:
                 continue
             if counts[genre] >= samples_per_genre:
                 continue  # already enough for this genre
@@ -187,11 +193,12 @@ class DrumPreprocessor:
                         tokens=np.array(tokens, dtype=np.int32),
                         positions=beat_positions,
                         genre=genre,
+                        bpm=np.array([bpm], dtype=np.float32),
                     )
 
                     counts[genre] += 1
                     saved += 1
-                    if saved % 50 == 0:  # less tqdm overhead
+                    if saved % 50 == 0:
                         pbar.update(50)
 
             # Stop early if all genre quotas hit
@@ -249,6 +256,7 @@ class DrumPreprocessor:
                     tokens=tokens,
                     positions=data["positions"],
                     genre=data["genre"],
+                    bpm=data["bpm"],
                 )
 
         logging.info(

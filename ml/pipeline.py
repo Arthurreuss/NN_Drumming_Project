@@ -60,6 +60,7 @@ class Pipeline:
                 token_embed_dim=self.model_cfg[model_name]["token_embed_dim"],
                 pos_embed_dim=self.model_cfg[model_name]["pos_embed_dim"],
                 genre_embed_dim=self.model_cfg[model_name]["genre_embed_dim"],
+                bpm_embed_dim=self.model_cfg[model_name]["bpm_embed_dim"],
                 hidden=self.model_cfg[model_name]["hidden_dim"],
                 layers=self.model_cfg[model_name]["num_layers"],
                 period=self.pipeline_cfg["inference"]["period"],
@@ -140,11 +141,15 @@ class Pipeline:
             prim_tok = sample["tokens"].unsqueeze(0).to(self.device)
             prim_pos = sample["positions"].unsqueeze(0).to(self.device)
             genre_id = sample["genre_id"].unsqueeze(0).to(self.device)
+            bpm = torch.tensor(
+                sample["bpm"], dtype=torch.float32, device=self.device
+            ).unsqueeze(0)
 
             gen_tokens = self.model.generate(
                 prim_tok,
                 prim_pos,
                 genre_id,
+                bpm=bpm,
                 unk_id=self.tokenizer.unk_id,
                 steps=self.pipeline_cfg["inference"]["generation_length"],
                 temperature=self.pipeline_cfg["inference"]["temperature"],
@@ -174,6 +179,7 @@ class Pipeline:
                     output_path=(
                         f"outputs/{self.pipeline_cfg['inference']['genre']}_{idx}.mid"
                     ),
+                    tempo=int(bpm),
                 )
 
         if self.pipeline_cfg["evaluate"]:
@@ -182,7 +188,7 @@ class Pipeline:
                 self.test_set,
                 batch_size=self.training_cfg["batch_size"],
                 shuffle=False,
-                num_workers=2,
+                num_workers=8,
             )
             logging.info("[Eval] Running evaluation on test set...")
             metrics = evaluate_model(

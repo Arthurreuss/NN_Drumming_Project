@@ -24,12 +24,14 @@ def train_epoch(model, loader, opt, crit, device, tf_ratio, unk_id):
         pos = batch["positions"].to(device)  # (B,T)
         genre = batch["genre_id"].to(device)  # (B,)
         tgt = batch["targets"].to(device)  # (B,T)
+        bpm = batch["bpm"].to(device)
 
         opt.zero_grad()
         logits = model(
             tok,
             pos,
             genre,
+            bpm=bpm,
             tgt_tokens=tgt,
             tgt_pos=pos,
             teacher_forcing=tf_ratio,
@@ -56,10 +58,13 @@ def eval_epoch(model, loader, crit, device, tf_ratio, unk_id):
         pos = batch["positions"].to(device)
         genre = batch["genre_id"].to(device)
         tgt = batch["targets"].to(device)
+        bpm = batch["bpm"].to(device)
+
         logits = model(
             tok,
             pos,
             genre,
+            bpm=bpm,
             tgt_tokens=tgt,
             tgt_pos=pos,
             teacher_forcing=tf_ratio,
@@ -111,14 +116,14 @@ def train(cfg, model, device, train_set, val_set, tokenizer, checkpoint_dir):
         train_set,
         batch_size=training_cfg["batch_size"],
         shuffle=True,
-        num_workers=2,
+        num_workers=8,
         persistent_workers=True,
     )
     val_loader = DataLoader(
         val_set,
         batch_size=training_cfg["batch_size"],
         shuffle=False,
-        num_workers=2,
+        num_workers=8,
         persistent_workers=True,
     )
 
@@ -169,12 +174,14 @@ def train(cfg, model, device, train_set, val_set, tokenizer, checkpoint_dir):
             pos = batch["positions"].to(device)
             genre = batch["genre_id"].to(device)
             tgt = batch["targets"].to(device)
+            bpm = batch["bpm"].to(device)
             logits = model(
                 tok,
                 pos,
                 genre,
                 tgt_tokens=tgt,
                 tgt_pos=pos,
+                bpm=bpm,
                 teacher_forcing=0.0,
                 unk_id=tokenizer.unk_id,
             )
