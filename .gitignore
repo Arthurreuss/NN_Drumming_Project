@@ -10,3 +10,5 @@ e-gmd-v1.0.0/
 *.npz
 __pycache__/
 /checkpoints
+*.npy
+/logs

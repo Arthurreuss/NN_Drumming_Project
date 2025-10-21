@@ -1,3 +1,4 @@
+import logging
 from collections import Counter
 
 import numpy as np
@@ -16,9 +17,11 @@ class SimpleTokenizer:
         if vocab is None:
             try:
                 self.vocab = self.load()
-                print(f"[Tokenizer] Loaded existing vocab ({len(self.vocab)} tokens)")
+                logging.info(
+                    f"[Tokenizer] Loaded existing vocab ({len(self.vocab)} tokens)"
+                )
             except Exception as e:
-                print(f"[Tokenizer] Warning: failed to load existing vocab: {e}")
+                logging.info(f"[Tokenizer] Warning: failed to load existing vocab: {e}")
                 self.vocab = {}
         else:
             self.vocab = vocab
@@ -64,7 +67,7 @@ class SimpleTokenizer:
     def prune(self, min_freq=50):
         """Remove rare tokens and map them to UNK (id=0)."""
         if not self.freqs:
-            print("[Tokenizer] No frequency data found — skipping pruning.")
+            logging.info("[Tokenizer] No frequency data found — skipping pruning.")
             return
 
         kept = {}
@@ -81,22 +84,22 @@ class SimpleTokenizer:
         kept[self.unk_token] = self.unk_id
         self.vocab = kept
 
-        print(f"[Tokenizer] Pruned vocab to {len(self.vocab)} tokens (+ UNK).")
-        print(f"[Tokenizer] Removed {removed} rare tokens (freq < {min_freq}).")
+        logging.info(f"[Tokenizer] Pruned vocab to {len(self.vocab)} tokens (+ UNK).")
+        logging.info(f"[Tokenizer] Removed {removed} rare tokens (freq < {min_freq}).")
 
     def save(self):
         """Save vocab and freqs to .npy file."""
         np.save(
             self.path, {"vocab": self.vocab, "freqs": self.freqs}, allow_pickle=True
         )
-        print(f"[Tokenizer] Saved to {self.path}")
+        logging.info(f"[Tokenizer] Saved to {self.path}")
 
     def load(self):  # TODO: make path configurable
         """Load vocab and freqs from .npy file."""
         data = np.load(self.path, allow_pickle=True).item()
         self.vocab = data.get("vocab", {})
         self.freqs = data.get("freqs", Counter())
-        print(
+        logging.info(
             f"[Tokenizer] Loaded vocab with {len(self.vocab)} tokens from {self.path}"
         )
         return self.vocab
@@ -114,9 +117,11 @@ class BeatTokenizer:
         if vocab is None:
             try:
                 self.vocab = self.load()
-                print(f"[Tokenizer] Loaded existing vocab ({len(self.vocab)} tokens)")
+                logging.info(
+                    f"[Tokenizer] Loaded existing vocab ({len(self.vocab)} tokens)"
+                )
             except Exception as e:
-                print(f"[Tokenizer] Warning: failed to load existing vocab: {e}")
+                logging.info(f"[Tokenizer] Warning: failed to load existing vocab: {e}")
                 self.vocab = {}
         else:
             self.vocab = vocab
@@ -177,37 +182,52 @@ class BeatTokenizer:
         # fallback for unknowns
         return np.zeros((self.q, D))
 
-    def prune(self, min_freq=50):
+    def prune(self, keep_ratio=0.95):
         if not self.freqs:
-            print("[Tokenizer] No frequency data found — skipping pruning.")
+            logging.info("[Tokenizer] No frequency data found — skipping pruning.")
             return
+
+        # sort tokens by frequency (descending)
+        sorted_items = sorted(self.freqs.items(), key=lambda x: x[1], reverse=True)
+        total_freq = sum(freq for _, freq in sorted_items)
+        cutoff = total_freq * keep_ratio
 
         kept = {}
         new_id = 1
-        removed = 0
-        for key, freq in self.freqs.items():
-            if freq >= min_freq:
+        cum_freq = 0
+        for key, freq in sorted_items:
+            if cum_freq < cutoff:
                 kept[key] = new_id
                 new_id += 1
+                cum_freq += freq
             else:
-                removed += 1
+                break
+
+        pruned_tokens = len(sorted_items) - len(kept)
+        pruned_freq = total_freq - cum_freq
+        kept_freq_share = cum_freq / total_freq * 100
 
         kept[self.unk_token] = self.unk_id
         self.vocab = kept
-        print(f"[Tokenizer] Pruned vocab to {len(self.vocab)} tokens (+UNK).")
-        print(f"[Tokenizer] Removed {removed} rare tokens (freq < {min_freq}).")
+
+        logging.info(f"[Tokenizer] Kept {len(kept)-1} tokens (+UNK).")
+        logging.info(f"[Tokenizer] Pruned {pruned_tokens} rare tokens.")
+        logging.info(
+            f"[Tokenizer] Kept freq share: {kept_freq_share:.2f}%  |  "
+            f"Pruned freq share: {100 - kept_freq_share:.2f}%"
+        )
 
     def save(self):
         np.save(
             self.path, {"vocab": self.vocab, "freqs": self.freqs}, allow_pickle=True
         )
-        print(f"[Tokenizer] Saved to {self.path}")
+        logging.info(f"[Tokenizer] Saved to {self.path}")
 
     def load(self):
         data = np.load(self.path, allow_pickle=True).item()
         self.vocab = data.get("vocab", {})
         self.freqs = data.get("freqs", Counter())
-        print(
+        logging.info(
             f"[Tokenizer] Loaded vocab with {len(self.vocab)} tokens from {self.path}"
         )
         return self.vocab
@@ -227,20 +247,24 @@ class BeatTokenizer:
         kept_freq = sum(self.freqs[k] for k in kept)
         pruned_freq = sum(self.freqs[k] for k in pruned)
 
-        print(f"[Tokenizer] Total observed frequency count: {total_freq:,}")
-        print(f"[Tokenizer] Kept tokens: {len(kept)}  (freq sum = {kept_freq:,})")
-        print(f"[Tokenizer] Pruned tokens: {len(pruned)}  (freq sum = {pruned_freq:,})")
+        logging.info(f"[Tokenizer] Total observed frequency count: {total_freq:,}")
+        logging.info(
+            f"[Tokenizer] Kept tokens: {len(kept)}  (freq sum = {kept_freq:,})"
+        )
+        logging.info(
+            f"[Tokenizer] Pruned tokens: {len(pruned)}  (freq sum = {pruned_freq:,})"
+        )
 
         if total_freq > 0:
             kept_ratio = kept_freq / total_freq * 100
             pruned_ratio = pruned_freq / total_freq * 100
-            print(
+            logging.info(
                 f"[Tokenizer] Kept freq share: {kept_ratio:.2f}%  |  Pruned freq share: {pruned_ratio:.2f}%"
             )
 
         if pruned:
             min_kept_freq = min(self.freqs[k] for k in kept) if kept else 0
             max_pruned_freq = max(self.freqs[k] for k in pruned)
-            print(
+            logging.info(
                 f"[Tokenizer] Lowest kept freq: {min_kept_freq}, Highest pruned freq: {max_pruned_freq}"
             )

@@ -1,4 +1,5 @@
 import csv
+import logging
 import os
 import random
 from pathlib import Path
@@ -71,7 +72,9 @@ class Pipeline:
         ckpt = torch.load(ckpt_path, map_location=self.device, weights_only=False)
         self.model.load_state_dict(ckpt["model_state"], strict=False)
         self.model.eval()
-        print(f"[Model] Loaded checkpoint from {ckpt_path}, epoch {ckpt['epoch']}")
+        logging.info(
+            f"[Model] Loaded checkpoint from {ckpt_path}, epoch {ckpt['epoch']}"
+        )
 
     def run(self):
         # load or preprocess dataset
@@ -92,7 +95,7 @@ class Pipeline:
                     self.dataset_path / "test", include_genre=True
                 )
             except Exception as e:
-                print(f"[Pipeline] Error loading datasets: {e}")
+                logging.info(f"[Pipeline] Error loading datasets: {e}")
                 return
 
         # build model
@@ -128,7 +131,7 @@ class Pipeline:
             # Pick one random sample
             idx = random.choice(genre_indices)
             sample = self.val_set[idx]
-            print(
+            logging.info(
                 f"[Inference] Picked sample {idx} ({self.pipeline_cfg['inference']['genre']})"
             )
 
@@ -177,14 +180,14 @@ class Pipeline:
                 shuffle=False,
                 num_workers=2,
             )
-            print("[Eval] Running evaluation on test set...")
+            logging.info("[Eval] Running evaluation on test set...")
             metrics = evaluate_model(
                 self.model, test_loader, self.device, self.tokenizer
             )
 
-            print("\n=== Evaluation Results (Full Test Set) ===")
+            logging.info("=== Evaluation Results (Full Test Set) ===")
             for k, v in metrics.items():
-                print(f"{k:20s}: {v:.4f}")
+                logging.info(f"{k:20s}: {v:.4f}")
 
             os.makedirs(self.checkpoint_path, exist_ok=True)
             csv_path = os.path.join(self.checkpoint_path, "test_eval_metrics.csv")
@@ -194,4 +197,4 @@ class Pipeline:
                 for k, v in metrics.items():
                     writer.writerow([k, v])
 
-            print(f"\n[Eval] Results written to {csv_path}")
+            logging.info(f"\n[Eval] Results written to {csv_path}")

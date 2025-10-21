@@ -60,7 +60,7 @@ dataset_creation:
     ride: [51, 59]
     ride_bell: [53]
   loudness_ranges: [0.0, 0.25, 0.5, 0.75, 1.0]
-  token_min_freq: 50 #pruning
+  keep_ratio: 0.95 #pruning
 
 # ===============================
 # Model Configuration
@@ -95,11 +95,11 @@ model:
 
 training:
   batch_size: 512
-  epochs: 100
+  epochs: 200
   learning_rate: 0.0005
   weight_decay: 0.0001
-  teacher_forcing_start: 0.5
-  teacher_forcing_end: 0.0
+  teacher_forcing_start: 1.0
+  teacher_forcing_end: -2.0
   checkpoint_dir: checkpoints
   early_stopping_patience: 5
 

@@ -1,3 +1,4 @@
+import logging
 import random
 import re
 from collections import defaultdict
@@ -108,16 +109,16 @@ class DrumPreprocessor:
                 "total": n,
             }
 
-        # --- Clean table print ---
-        print("\nSplit summary:")
-        print(f"{'Genre':<12} {'Train':>6} {'Val':>6} {'Test':>6} {'Total':>6}")
-        print("-" * 44)
+        # --- Clean table logging.info ---
+        logging.info("\nSplit summary:")
+        logging.info(f"{'Genre':<12} {'Train':>6} {'Val':>6} {'Test':>6} {'Total':>6}")
+        logging.info("-" * 44)
         for genre, c in sorted(per_genre_counts.items()):
-            print(
+            logging.info(
                 f"{genre:<12} {c['train']:>6} {c['val']:>6} {c['test']:>6} {c['total']:>6}"
             )
-        print("-" * 44)
-        print(
+        logging.info("-" * 44)
+        logging.info(
             f"{'Total':<12} "
             f"{len(splits['train']):>6} "
             f"{len(splits['val']):>6} "
@@ -199,9 +200,9 @@ class DrumPreprocessor:
                 break
 
         pbar.close()
-        print(f"\nFinal counts per genre in {output_dir.name}:")
+        logging.info(f"\nFinal counts per genre in {output_dir.name}:")
         for g in sorted(self.genres):
-            print(f"  {g}: {counts[g]} samples")
+            logging.info(f"  {g}: {counts[g]} samples")
 
     def _filter_dataset_unknowns(self, dataset_dir, unk_id=0, unk_threshold=0.5):
         """
@@ -221,7 +222,7 @@ class DrumPreprocessor:
                 file.unlink()  # delete file
                 removed += 1
 
-        print(
+        logging.info(
             f"[Filter] {removed}/{total} samples removed "
             f"({removed/total*100:.1f}%) — unk_ratio > {unk_threshold}"
         )
@@ -251,13 +252,15 @@ class DrumPreprocessor:
                     genre=data["genre"],
                 )
 
-        print(f"[Remap] {remapped}/{len(npz_files)} files contained pruned tokens.")
+        logging.info(
+            f"[Remap] {remapped}/{len(npz_files)} files contained pruned tokens."
+        )
 
     def preprocess_dataset(self):
         midi_dir = Path(self.midi_dir)
         midi_files = list(midi_dir.rglob("*.mid")) + list(midi_dir.rglob("*.midi"))
         random.shuffle(midi_files)
-        print(f"[Preprocessor] Found {len(midi_files)} MIDI files")
+        logging.info(f"[Preprocessor] Found {len(midi_files)} MIDI files")
 
         splits = self._split_files_by_genre(midi_files)
         ratios = dict(zip(["train", "val", "test"], self.train_test_val_split))
@@ -268,7 +271,7 @@ class DrumPreprocessor:
 
         datasets = {}
         for split, files in splits.items():
-            print(f"\n[Preprocessor] Processing {split} set...")
+            logging.info(f"\n[Preprocessor] Processing {split} set...")
             out_dir = base_dir / split
             out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -277,9 +280,9 @@ class DrumPreprocessor:
 
             self._process_midi_files(files, out_dir, samples_per_genre, split_target)
 
-        self.tokenizer.prune(min_freq=self.dataset_cfg["token_min_freq"])
+        self.tokenizer.prune(keep_ratio=self.dataset_cfg["keep_ratio"])
         self.tokenizer.save()
-        print(f"[Tokenizer] Vocabulary size: {len(self.tokenizer)} tokens")
+        logging.info(f"[Tokenizer] Vocabulary size: {len(self.tokenizer)} tokens")
         self.tokenizer.analyze_tokens()
         self._remap_tokens_to_pruned_vocab(base_dir)
 
@@ -296,6 +299,6 @@ class DrumPreprocessor:
         #         unk_id=self.tokenizer.unk_id,
         #         unk_threshold=0.9,
         #     )
-        print("[Preprocessor] Preprocessing complete.\n")
+        logging.info("[Preprocessor] Preprocessing complete.\n")
 
         return datasets["train"], datasets["val"], datasets["test"], self.tokenizer

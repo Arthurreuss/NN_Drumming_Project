@@ -1,4 +1,5 @@
 import csv
+import logging
 import math
 import os
 
@@ -127,7 +128,7 @@ def train(model, device, train_set, val_set, tokenizer, checkpoint_dir):
         weight_decay=training_cfg["weight_decay"],
     )
 
-    print("[Loss] Computing class weights...")
+    logging.info("[Loss] Computing class weights...")
     token_counts = np.zeros(model.vocab_size, dtype=np.int64)
 
     for batch in train_loader:
@@ -143,7 +144,7 @@ def train(model, device, train_set, val_set, tokenizer, checkpoint_dir):
     weights = weights / weights.mean()
     weights = torch.tensor(weights, dtype=torch.float32, device=device)
     crit = nn.CrossEntropyLoss(weight=weights, ignore_index=tokenizer.unk_id)
-    print(f"[Loss] Class weights computed for {len(weights)} tokens.")
+    logging.info(f"[Loss] Class weights computed for {len(weights)} tokens.")
 
     best = math.inf
     wait = 0
@@ -187,13 +188,13 @@ def train(model, device, train_set, val_set, tokenizer, checkpoint_dir):
                 np.array(all_preds), np.array(all_targets), tokenizer
             )
         except Exception as e:
-            print(f"[Warning] Metric computation failed: {e}")
+            logging.info(f"[Warning] Metric computation failed: {e}")
             extra_metrics = {}
 
         # --- Combine and log ---
         metrics = {"train_loss": tr, "val_loss": va, **extra_metrics}
-        print(
-            f"ep {epoch:02d} | tr {tr:.4f} | val {va:.4f} | tf={tf_ratio:.2f} | acc={metrics['accuracy']:.3f} | f1={metrics['f1_macro']:.3f}"
+        logging.info(
+            f"ep {epoch:02d} | train_loss {tr:.4f} | val_loss {va:.4f} | tf={tf_ratio:.2f} | acc={metrics['accuracy']:.3f} | f1={metrics['f1_macro']:.3f}"
         )
 
         # Save to CSV
@@ -233,7 +234,7 @@ def train(model, device, train_set, val_set, tokenizer, checkpoint_dir):
         else:
             wait += 1
             if wait >= patience:
-                print(f"[Early Stopping] No improvement for {patience} epochs.")
+                logging.info(f"[Early Stopping] No improvement for {patience} epochs.")
                 break
 
     return model

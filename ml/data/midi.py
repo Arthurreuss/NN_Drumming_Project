@@ -1,3 +1,5 @@
+import logging
+
 import numpy as np
 import pretty_midi
 from mido import MidiFile
@@ -145,4 +147,4 @@ class Midi:
 
         pm.instruments.append(drum_instrument)
         pm.write(output_path)
-        print(f"[MIDI] Saved cleaned drum track to {output_path}")
+        logging.info(f"[MIDI] Saved cleaned drum track to {output_path}")
