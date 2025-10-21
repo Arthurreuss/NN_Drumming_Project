@@ -7,9 +7,9 @@ pipeline:
   segment_len: &seg_len 512 #len of sample (At least 4x quantization to get one bar)
   model: large    #Options : [small, medium, large]
   create_dataset: False
-  train_model: False
+  train_model: True
   inference: 
-    enabled: True
+    enabled: False
     genre: rock #Options : [afrocuban, dance, funk, hiphop, jazz, latin, neworleans, pop, reggae, rock, soul] 
     generation_length: 64
     period: 4 #length of one bar
