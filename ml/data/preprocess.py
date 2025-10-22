@@ -89,12 +89,20 @@ class DrumPreprocessor:
 
     def _remap_tokens_to_pruned_vocab(self, dataset_dir):
         """
-        Replace all tokens not in the pruned vocab with UNK id.
+        Remap old token IDs to new contiguous indices after vocab pruning.
+        Tokens not in the kept vocab are replaced with UNK id.
         """
         dataset_dir = Path(dataset_dir)
         npz_files = list(dataset_dir.rglob("*.npz"))
-        vocab_keys = np.array(list(self.tokenizer.vocab.values()))
         unk_id = self.tokenizer.unk_id
+
+        # Map old IDs -> new contiguous IDs
+        # self.tokenizer.vocab is a dict {token_str: old_id}
+        old_to_new = {
+            old_id: new_id
+            for new_id, old_id in enumerate(self.tokenizer.vocab.values())
+        }
+
         remapped_files = 0
         remapped_tokens = 0
 
@@ -102,23 +110,25 @@ class DrumPreprocessor:
             data = np.load(f, allow_pickle=True)
             tokens = data["tokens"]
 
-            invalid_mask = ~np.isin(tokens, vocab_keys)
-            n_invalid = invalid_mask.sum()
+            # Remap each token ID, fallback to unk_id
+            remapped = np.vectorize(
+                lambda t: old_to_new.get(t, unk_id), otypes=[np.int32]
+            )(tokens)
+            n_changed = np.sum(tokens != remapped)
 
-            if np.any(invalid_mask):
-                tokens[invalid_mask] = unk_id
-                remapped_files += 1
-                remapped_tokens += n_invalid
+            if n_changed > 0:
                 np.savez(
                     f,
-                    tokens=tokens,
+                    tokens=remapped.astype(np.int32),
                     positions=data["positions"],
                     genre=data["genre"],
                     bpm=data["bpm"],
                 )
+                remapped_files += 1
+                remapped_tokens += n_changed
 
         logging.info(
-            f"[Remap] {remapped_files}/{len(npz_files)} files contained pruned tokens."
+            f"[Remap] {remapped_files}/{len(npz_files)} files remapped | {remapped_tokens} tokens changed."
         )
 
     def _shuffle_and_store_samples(self, temp_dir, dataset_dir):
