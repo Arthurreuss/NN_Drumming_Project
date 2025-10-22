@@ -5,8 +5,6 @@ import pretty_midi
 from mido import MidiFile
 from unidecode import unidecode
 
-from ml.utils.cfg import load_config
-
 
 class Midi:
     def __init__(self, quantization):
@@ -96,7 +94,7 @@ class Midi:
                 del self.tracks[name]
         return self.tracks
 
-    def create_midi(self, cfg, drumroll_matrix, output_path, tempo=100, threshold=0.3):
+    def create_midi(self, cfg, drumroll_matrix, output_path, tempo, threshold=0.3):
         """
         Convert a (T,9) drumroll matrix (values 0–1) into a clean, playable MIDI drum file.
         """
