@@ -26,15 +26,6 @@ def train_epoch(model, loader, opt, crit, device, tf_ratio, unk_id):
         tgt = batch["targets"].to(device)  # (B,T)
         bpm = batch["bpm"].to(device)
 
-        # right after you move batch to device, before self.token_emb
-        v = model.vocab_size
-        mn = tok.min().item()
-        mx = tok.max().item()
-        if mn < 0 or mx >= v:
-            raise ValueError(
-                f"Token id out of range: min={mn}, max={mx}, vocab_size={v}"
-            )
-
         opt.zero_grad()
         logits = model(
             tok,

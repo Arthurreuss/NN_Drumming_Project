@@ -15,6 +15,7 @@ from ml.data.tokenizer import BeatTokenizer
 from ml.evaluation.eval import evaluate_model
 from ml.models.lstm import Seq2SeqLSTM
 from ml.training.train import train
+from scripts.pca_analysis import pca
 from scripts.plotting_inference import plot_drum_matrix
 
 
@@ -141,9 +142,7 @@ class Pipeline:
             prim_tok = sample["tokens"].unsqueeze(0).to(self.device)
             prim_pos = sample["positions"].unsqueeze(0).to(self.device)
             genre_id = sample["genre_id"].unsqueeze(0).to(self.device)
-            bpm = torch.tensor(
-                sample["bpm"], dtype=torch.float32, device=self.device
-            ).unsqueeze(0)
+            bpm = sample["bpm"].unsqueeze(0).to(self.device)
 
             gen_tokens = self.model.generate(
                 prim_tok,

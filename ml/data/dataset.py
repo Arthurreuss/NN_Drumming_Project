@@ -31,7 +31,7 @@ class DrumDataset(Dataset):
         X_in = tokens[:-1]
         X_out = tokens[1:]
         pos_in = positions[:-1]
-        bpm = torch.tensor(data["bpm"], dtype=torch.float32)
+        bpm = torch.from_numpy(data["bpm"]).float()
 
         return {
             "tokens": X_in,
