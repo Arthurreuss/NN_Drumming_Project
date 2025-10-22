@@ -185,35 +185,28 @@ class BeatTokenizer:
             logging.info("[Tokenizer] No frequency data found — skipping pruning.")
             return
 
-        # sort tokens by frequency (descending)
         sorted_items = sorted(self.freqs.items(), key=lambda x: x[1], reverse=True)
         total_freq = sum(freq for _, freq in sorted_items)
         cutoff = total_freq * keep_ratio
 
-        kept = {}
-        new_id = 1
+        kept_keys = []
         cum_freq = 0
         for key, freq in sorted_items:
             if cum_freq < cutoff:
-                kept[key] = new_id
-                new_id += 1
+                kept_keys.append(key)
                 cum_freq += freq
             else:
                 break
 
-        pruned_tokens = len(sorted_items) - len(kept)
-        pruned_freq = total_freq - cum_freq
         kept_freq_share = cum_freq / total_freq * 100
 
-        kept[self.unk_token] = self.unk_id
-        self.vocab = kept
+        # preserve original ids
+        new_vocab = {k: self.vocab[k] for k in kept_keys if k in self.vocab}
+        new_vocab[self.unk_token] = self.unk_id
+        self.vocab = new_vocab
 
-        logging.info(f"[Tokenizer] Kept {len(kept)-1} tokens (+UNK).")
-        logging.info(f"[Tokenizer] Pruned {pruned_tokens} rare tokens.")
-        logging.info(
-            f"[Tokenizer] Kept freq share: {kept_freq_share:.2f}%  |  "
-            f"Pruned freq share: {100 - kept_freq_share:.2f}%"
-        )
+        logging.info(f"[Tokenizer] Kept {len(self.vocab)-1} tokens (+UNK).")
+        logging.info(f"[Tokenizer] Kept freq share: {kept_freq_share:.2f}%")
 
     def save(self):
         np.save(

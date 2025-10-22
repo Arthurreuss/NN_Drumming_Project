@@ -21,11 +21,9 @@ def count_tokens_in_dataset(dataset_dir):
     for f in tqdm(files, desc=f"Counting tokens in {dataset_dir.name}"):
         try:
             data = np.load(f, allow_pickle=True)
-            tokens = data["tokens"].flatten()
+            tokens = data["tokens"]
+            # tokens = tokens[tokens != 0]
             counter.update(tokens.tolist())
-
-            if "targets" in data:
-                counter.update(data["targets"].flatten().tolist())
         except Exception as e:
             print(f"[Warning] Skipped {f.name}: {e}")
 
@@ -59,7 +57,7 @@ def summarize(counter, title="Token Distribution", top_n=20, save_path=None):
 
 
 if __name__ == "__main__":
-    dataset_root = Path("dataset/processed_test/q_16/seg_128")
+    dataset_root = Path("dataset/processed/q_16/seg_512")
     train_dir = dataset_root / "train"
     val_dir = dataset_root / "val"
     test_dir = dataset_root / "test"

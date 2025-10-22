@@ -1,11 +1,13 @@
 import logging
+import os
 import random
 import re
+import shutil
 from collections import defaultdict
-from os import path
 from pathlib import Path
 
 import numpy as np
+from sympy import rem
 from tqdm import tqdm
 
 from ml.data.dataset import DrumDataset
@@ -78,20 +80,55 @@ class DrumPreprocessor:
         trimmed_len = (trimmed.shape[0] // self.segment_len) * self.segment_len
         return trimmed[:trimmed_len]
 
-    def _split_files_by_genre(self, midi_files: list[Path]):
+    def _cyclic_positional_encoding(self):
+        t = np.arange(self.segment_len)
+        period = self.quantization * 4
+        return np.stack(
+            [np.sin(2 * np.pi * t / period), np.cos(2 * np.pi * t / period)], axis=1
+        )  # shape: (length, 2)
+
+    def _remap_tokens_to_pruned_vocab(self, dataset_dir):
+        """
+        Replace all tokens not in the pruned vocab with UNK id.
+        """
+        dataset_dir = Path(dataset_dir)
+        npz_files = list(dataset_dir.rglob("*.npz"))
+        vocab_keys = np.array(list(self.tokenizer.vocab.values()))
+        unk_id = self.tokenizer.unk_id
+        remapped_files = 0
+        remapped_tokens = 0
+
+        for f in npz_files:
+            data = np.load(f, allow_pickle=True)
+            tokens = data["tokens"]
+
+            invalid_mask = ~np.isin(tokens, vocab_keys)
+            n_invalid = invalid_mask.sum()
+
+            if np.any(invalid_mask):
+                tokens[invalid_mask] = unk_id
+                remapped_files += 1
+                remapped_tokens += n_invalid
+                np.savez(
+                    f,
+                    tokens=tokens,
+                    positions=data["positions"],
+                    genre=data["genre"],
+                    bpm=data["bpm"],
+                )
+
+        logging.info(
+            f"[Remap] {remapped_files}/{len(npz_files)} files contained pruned tokens."
+        )
+
+    def _shuffle_and_store_samples(self, temp_dir, dataset_dir):
         """Split files into train/val/test while maintaining genre balance."""
         rng = random.Random(self.seed)
-        genre_files = defaultdict(list)
-        for f in midi_files:
-            genre, bpm = self._extract_metadata(f)
-            if genre in self.genres:
-                genre_files[genre].append(f)
-
-        splits = {"train": [], "val": [], "test": []}
-        per_genre_counts = {}
-
-        for genre, files in genre_files.items():
+        for genre in self.genres:
+            genre_dir = temp_dir / genre
+            files = [p for p in genre_dir.glob("*.*") if p.is_file()]
             rng.shuffle(files)
+
             n = len(files)
             n_train = int(n * self.train_test_val_split[0])
             n_val = int(n * self.train_test_val_split[1])
@@ -101,49 +138,33 @@ class DrumPreprocessor:
             val_files = files[n_train : n_train + n_val]
             test_files = files[n_train + n_val :]
 
-            splits["train"].extend(train_files)
-            splits["val"].extend(val_files)
-            splits["test"].extend(test_files)
+            os.makedirs(dataset_dir / "train" / genre, exist_ok=True)
+            os.makedirs(dataset_dir / "val" / genre, exist_ok=True)
+            os.makedirs(dataset_dir / "test" / genre, exist_ok=True)
 
-            per_genre_counts[genre] = {
-                "train": len(train_files),
-                "val": len(val_files),
-                "test": len(test_files),
-                "total": n,
-            }
+            for f in train_files:
+                target = dataset_dir / "train" / genre / f.name
+                shutil.move(str(f), str(target))
 
-        # --- Clean table logging.info ---
-        logging.info("\nSplit summary:")
-        logging.info(f"{'Genre':<12} {'Train':>6} {'Val':>6} {'Test':>6} {'Total':>6}")
-        logging.info("-" * 44)
-        for genre, c in sorted(per_genre_counts.items()):
-            logging.info(
-                f"{genre:<12} {c['train']:>6} {c['val']:>6} {c['test']:>6} {c['total']:>6}"
-            )
-        logging.info("-" * 44)
-        logging.info(
-            f"{'Total':<12} "
-            f"{len(splits['train']):>6} "
-            f"{len(splits['val']):>6} "
-            f"{len(splits['test']):>6} "
-            f"{len(midi_files):>6}\n"
-        )
+            for f in val_files:
+                target = dataset_dir / "val" / genre / f.name
+                shutil.move(str(f), str(target))
 
-        return splits
+            for f in test_files:
+                target = dataset_dir / "test" / genre / f.name
+                shutil.move(str(f), str(target))
+        try:
+            shutil.rmtree(temp_dir)
+        except Exception as e:
+            logging.info(f"[Preprocessor] Warning: failed to remove temp dir: {e}")
 
-    def _cyclic_positional_encoding(self):
-        t = np.arange(self.segment_len)
-        period = self.quantization * 4
-        return np.stack(
-            [np.sin(2 * np.pi * t / period), np.cos(2 * np.pi * t / period)], axis=1
-        )  # shape: (length, 2)
-
-    def _process_midi_files(
-        self, midi_files, output_dir, samples_per_genre, split_target
-    ):
+    def _process_midi_files(self, midi_files, output_dir):
         counts = defaultdict(int)
         saved = 0
-        pbar = tqdm(total=split_target, desc=f"Saving to {output_dir.name}", unit="seg")
+        samples_per_genre = int(self.total_target / len(self.genres))
+        pbar = tqdm(
+            total=self.total_target, desc=f"Saving to {output_dir.name}", unit="seg"
+        )
 
         # Shuffle all files globally for randomness
         random.shuffle(midi_files)
@@ -155,7 +176,7 @@ class DrumPreprocessor:
             if 0 > bpm > 250:
                 continue
             if counts[genre] >= samples_per_genre:
-                continue  # already enough for this genre
+                continue
 
             tracks = self.midi_reader.read_file(str(midi_path))
             if not tracks:
@@ -168,15 +189,17 @@ class DrumPreprocessor:
                 if n_steps < self.segment_len:
                     continue
 
-                # non-overlapping starts
-                starts = np.arange(0, n_steps - self.segment_len + 1, self.segment_len)
+                # overlapping starts
+                starts = np.arange(
+                    0, n_steps - self.segment_len + 1, self.segment_len // 2
+                )
                 np.random.shuffle(starts)
 
                 genre_dir = output_dir / genre
                 genre_dir.mkdir(exist_ok=True)
 
                 for s in starts:
-                    if counts[genre] >= samples_per_genre or saved >= split_target:
+                    if counts[genre] >= samples_per_genre or saved >= self.total_target:
                         break
 
                     seg = mat[s : s + self.segment_len]
@@ -201,91 +224,26 @@ class DrumPreprocessor:
                     if saved % 50 == 0:
                         pbar.update(50)
 
-            # Stop early if all genre quotas hit
-            if all(counts[g] >= samples_per_genre for g in self.genres):
-                break
-
         pbar.close()
         logging.info(f"\nFinal counts per genre in {output_dir.name}:")
         for g in sorted(self.genres):
             logging.info(f"  {g}: {counts[g]} samples")
 
-    def _filter_dataset_unknowns(self, dataset_dir, unk_id=0, unk_threshold=0.5):
-        """
-        Remove dataset samples (.npz files) where more than `unk_threshold`
-        fraction of tokens are <UNK> (id == unk_id).
-        """
-        dataset_dir = Path(dataset_dir)
-        npz_files = list(dataset_dir.rglob("*.npz"))
-        removed = 0
-        total = len(npz_files)
-
-        for file in npz_files:
-            data = np.load(file, allow_pickle=True)
-            tokens = data["tokens"]
-            unk_ratio = np.mean(tokens == unk_id)
-            if unk_ratio >= unk_threshold:
-                file.unlink()  # delete file
-                removed += 1
-
-        logging.info(
-            f"[Filter] {removed}/{total} samples removed "
-            f"({removed/total*100:.1f}%) — unk_ratio > {unk_threshold}"
-        )
-
-    def _remap_tokens_to_pruned_vocab(self, dataset_dir):
-        """
-        Replace all tokens not in the pruned vocab with UNK id.
-        """
-        dataset_dir = Path(dataset_dir)
-        npz_files = list(dataset_dir.rglob("*.npz"))
-        vocab_keys = set(self.tokenizer.vocab.values())
-        unk_id = self.tokenizer.unk_id
-        remapped = 0
-
-        for f in npz_files:
-            data = np.load(f, allow_pickle=True)
-            tokens = data["tokens"]
-
-            invalid_mask = ~np.isin(tokens, list(vocab_keys))
-            if np.any(invalid_mask):
-                tokens[invalid_mask] = unk_id
-                remapped += 1
-                np.savez(
-                    f,
-                    tokens=tokens,
-                    positions=data["positions"],
-                    genre=data["genre"],
-                    bpm=data["bpm"],
-                )
-
-        logging.info(
-            f"[Remap] {remapped}/{len(npz_files)} files contained pruned tokens."
-        )
-
     def preprocess_dataset(self):
         midi_dir = Path(self.midi_dir)
         midi_files = list(midi_dir.rglob("*.mid")) + list(midi_dir.rglob("*.midi"))
-        random.shuffle(midi_files)
         logging.info(f"[Preprocessor] Found {len(midi_files)} MIDI files")
-
-        splits = self._split_files_by_genre(midi_files)
-        ratios = dict(zip(["train", "val", "test"], self.train_test_val_split))
 
         base_dir = (
             Path(self.save_dir) / f"q_{self.quantization}" / f"seg_{self.segment_len}"
         )
+        logging.info(f"\n[Preprocessor] Extracting all smamples...")
+        temp_dir = base_dir / "temp"
+        temp_dir.mkdir(parents=True, exist_ok=True)
+        self._process_midi_files(midi_files, temp_dir)
 
-        datasets = {}
-        for split, files in splits.items():
-            logging.info(f"\n[Preprocessor] Processing {split} set...")
-            out_dir = base_dir / split
-            out_dir.mkdir(parents=True, exist_ok=True)
-
-            split_target = int(self.total_target * ratios[split])
-            samples_per_genre = split_target // len(self.genres)
-
-            self._process_midi_files(files, out_dir, samples_per_genre, split_target)
+        logging.info(f"\n[Preprocessor] Shuffling all smamples...")
+        self._shuffle_and_store_samples(temp_dir, base_dir)
 
         self.tokenizer.prune(keep_ratio=self.dataset_cfg["keep_ratio"])
         self.tokenizer.save()
@@ -293,6 +251,7 @@ class DrumPreprocessor:
         self.tokenizer.analyze_tokens()
         self._remap_tokens_to_pruned_vocab(base_dir)
 
+        datasets = {}
         for split in ["train", "val", "test"]:
             out_dir = base_dir / split
             datasets[split] = DrumDataset(self.cfg, out_dir, include_genre=True)

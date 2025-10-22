@@ -12,3 +12,5 @@ __pycache__/
 /checkpoints
 *.npy
 /logs
+/outputs
+*tar.gz

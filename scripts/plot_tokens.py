@@ -1,13 +1,19 @@
 import numpy as np
 
 from ml.data.tokenizer import BeatTokenizer
+from ml.utils import cfg
+from ml.utils.cfg import load_config
 from scripts.plotting_inference import plot_drum_matrix
 
-tokenizer = BeatTokenizer("dataset/processed_test/q_16/seg_128/beat_tokenizer.npy")
-
+cfg = load_config()
+tokenizer = BeatTokenizer(cfg, "dataset/processed/q_16/seg_512/beat_tokenizer.npy")
+print(f"Loaded tokenizer with {len(tokenizer)} tokens.")
 D = len(tokenizer.cfg["dataset_creation"]["pitch_groups"])
-
+idx = 0
 for motif, tid in tokenizer.vocab.items():
+    if idx > 200:
+        break
+    idx += 1
     if motif == "<UNK>":
         continue
     arr = np.array(motif, dtype=float)
