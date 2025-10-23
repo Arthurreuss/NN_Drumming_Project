@@ -143,12 +143,12 @@ class BeatTokenizer:
 
     def tokenize(self, seq):
         """Tokenize a sequence every 16 timesteps (one beat). Each beat (16x num_drums) becomes one token."""
-
+        token_length = 1  # 16 timesteps per beat
         tokens = []
         T = len(seq)
-        for start in range(0, T, self.q):
-            beat_chunk = seq[start : start + self.q]
-            if len(beat_chunk) < self.q:
+        for start in range(0, T, token_length):
+            beat_chunk = seq[start : start + token_length]
+            if len(beat_chunk) < token_length:
                 continue  # ignore incomplete beat
 
             # flatten and quantize to loudness grid

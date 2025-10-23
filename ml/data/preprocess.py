@@ -4,11 +4,9 @@ import random
 import re
 import shutil
 from collections import defaultdict
-from hmac import new
 from pathlib import Path
 
 import numpy as np
-from sympy import rem
 from tqdm import tqdm
 
 from ml.data.dataset import DrumDataset
@@ -83,7 +81,7 @@ class DrumPreprocessor:
 
     def _cyclic_positional_encoding(self):
         t = np.arange(self.segment_len)
-        period = self.quantization * 4
+        period = self.quantization
         return np.stack(
             [np.sin(2 * np.pi * t / period), np.cos(2 * np.pi * t / period)], axis=1
         )  # shape: (length, 2)
@@ -230,7 +228,7 @@ class DrumPreprocessor:
                     tokens = self.tokenizer.tokenize(seg)
 
                     positions = self._cyclic_positional_encoding()
-                    beat_positions = positions[:: self.quantization][: len(tokens)]
+                    beat_positions = positions[: len(tokens)]
 
                     out_path = (
                         genre_dir / f"{midi_path.stem}_{name}_seg{s}_id{saved}.npz"

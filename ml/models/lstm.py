@@ -63,6 +63,7 @@ class Seq2SeqLSTM(nn.Module):
         B, T = tokens.shape
         g = self.genre_emb(genre_id).unsqueeze(1).expand(B, T, -1)
         b = self.bpm_emb(bpm.unsqueeze(1).float()).expand(B, T, -1)
+
         x = torch.cat([self.token_emb(tokens), self.pos_emb(pos.float()), g, b], dim=-1)
         _, (h, c) = self.encoder(x)
         return (h, c)
