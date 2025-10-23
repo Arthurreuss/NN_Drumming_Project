@@ -102,7 +102,6 @@ training:
   weight_decay: 0.0001
   teacher_forcing_start: 1.0
   teacher_forcing_end: -2.0
-  checkpoint_dir: checkpoints
   early_stopping_patience: 5
 
 

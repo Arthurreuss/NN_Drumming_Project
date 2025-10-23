@@ -35,6 +35,7 @@ class Pipeline:
             Path("checkpoints")
             / f"seg_{self.pipeline_cfg['segment_len']}"
             / self.pipeline_cfg["model"]
+            / self.model_cfg["learning_rate"]
         )
 
         self.midi_reader = Midi(self.pipeline_cfg["quantization"])
