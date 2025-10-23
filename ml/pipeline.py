@@ -35,7 +35,7 @@ class Pipeline:
             Path("checkpoints")
             / f"seg_{self.pipeline_cfg['segment_len']}"
             / self.pipeline_cfg["model"]
-            / self.model_cfg["learning_rate"]
+            / str(self.training_cfg["learning_rate"])
         )
 
         self.midi_reader = Midi(self.pipeline_cfg["quantization"])
@@ -133,7 +133,9 @@ class Pipeline:
                 )
 
             # Pick one random sample
+            random.seed()
             idx = random.choice(genre_indices)
+            random.seed(self.dataset_cfg["seed"])
             sample = self.val_set[idx]
             logging.info(
                 f"[Inference] Picked sample {idx} ({self.pipeline_cfg['inference']['genre']})"

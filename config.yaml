@@ -7,16 +7,16 @@ pipeline:
   segment_len: &seg_len 512 #len of sample (At least 4x quantization to get one bar)
   model: large    #Options : [small, medium, large]
   create_dataset: False
-  train_model: True
+  train_model: False
   inference: 
-    enabled: False
+    enabled: True
     genre: rock #Options : [afrocuban, dance, funk, hiphop, jazz, latin, neworleans, pop, reggae, rock, soul] 
-    generation_length: 64
+    generation_length: 128
     period: 4 #length of one bar
-    temperature: 0.99
-    plot: False # saves to outputs
-    create_midi: False #saves to outputs
-  evaluate: True
+    temperature: 0.7
+    plot: True # saves to outputs
+    create_midi: True #saves to outputs
+  evaluate: False
 
 # ===============================
 # Dataset Configuration
