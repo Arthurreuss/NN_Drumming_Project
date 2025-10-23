@@ -141,9 +141,8 @@ class BeatTokenizer:
         idx = np.clip(idx, 0, len(ranges) - 1)
         return ranges[idx]
 
-    def tokenize(self, seq):
+    def tokenize(self, seq, token_length):
         """Tokenize a sequence every 16 timesteps (one beat). Each beat (16x num_drums) becomes one token."""
-        token_length = 1  # 16 timesteps per beat
         tokens = []
         T = len(seq)
         for start in range(0, T, token_length):

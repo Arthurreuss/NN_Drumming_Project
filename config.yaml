@@ -7,24 +7,25 @@ pipeline:
   segment_len: &seg_len 128 #len of sample (At least 4x quantization to get one bar)
   model: large    #Options : [small, medium, large]
   create_dataset: False
-  train_model: True
+  train_model: False
   inference: 
-    enabled: False
-    genre: hiphop #Options : [afrocuban, dance, funk, hiphop, jazz, latin, neworleans, pop, reggae, rock, soul] 
+    enabled: True
+    genre: reggae #Options : [afrocuban, dance, funk, hiphop, jazz, latin, neworleans, pop, reggae, rock, soul] 
     generation_length: 128
     period: 4 #length of one bar
-    temperature: 0.7
-    plot: False # saves to outputs
-    create_midi: False #saves to outputs
-  evaluate: True
+    temperature: 0.99
+    plot: True # saves to outputs
+    create_midi: True #saves to outputs
+  evaluate: False
 
 # ===============================
 # Dataset Configuration
 # ===============================
 
 dataset_creation:
+  token_len: 4  # number of quantized timesteps per token
   seed: 42
-  total_target: 240000 # total number of training samples
+  total_target: 24000 # total number of training samples
   raw_data_dir: dataset/e-gmd-v1.0.0 # path to raw midi files
   preprocessed_data_dir: dataset/processed # path to save processed data
   quantization: *q #Options: [16, 32, 64]
@@ -96,8 +97,8 @@ model:
 # ===============================
 
 training:
-  batch_size: 64
-  epochs: 200
+  batch_size: 1024
+  epochs: 500
   learning_rate: 0.0005
   weight_decay: 0.0001
   teacher_forcing_start: 1.0

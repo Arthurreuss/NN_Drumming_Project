@@ -81,7 +81,7 @@ class DrumPreprocessor:
 
     def _cyclic_positional_encoding(self):
         t = np.arange(self.segment_len)
-        period = self.quantization
+        period = self.quantization / self.dataset_cfg["token_len"]
         return np.stack(
             [np.sin(2 * np.pi * t / period), np.cos(2 * np.pi * t / period)], axis=1
         )  # shape: (length, 2)
@@ -225,10 +225,16 @@ class DrumPreprocessor:
                         break
 
                     seg = mat[s : s + self.segment_len]
-                    tokens = self.tokenizer.tokenize(seg)
+                    tokens = self.tokenizer.tokenize(seg, self.dataset_cfg["token_len"])
 
                     positions = self._cyclic_positional_encoding()
-                    beat_positions = positions[: len(tokens)]
+
+                    if self.dataset_cfg["token_len"] > 1:
+                        beat_positions = positions[:: self.dataset_cfg["token_len"]][
+                            : len(tokens)
+                        ]
+                    else:
+                        beat_positions = positions[: len(tokens)]
 
                     out_path = (
                         genre_dir / f"{midi_path.stem}_{name}_seg{s}_id{saved}.npz"
