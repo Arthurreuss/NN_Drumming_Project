@@ -15,7 +15,6 @@ from ml.data.tokenizer import BeatTokenizer
 from ml.evaluation.eval import evaluate_model
 from ml.models.lstm import Seq2SeqLSTM
 from ml.training.train import train
-from scripts.pca_analysis import pca
 from scripts.plotting_inference import plot_drum_matrix
 
 

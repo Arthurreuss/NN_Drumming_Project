@@ -4,6 +4,7 @@ import random
 import re
 import shutil
 from collections import defaultdict
+from hmac import new
 from pathlib import Path
 
 import numpy as np
@@ -88,29 +89,42 @@ class DrumPreprocessor:
         )  # shape: (length, 2)
 
     def _remap_tokens_to_pruned_vocab(self, dataset_dir):
-        """
-        Remap old token IDs to new contiguous indices after vocab pruning.
-        Tokens not in the kept vocab are replaced with UNK id.
-        """
         dataset_dir = Path(dataset_dir)
         npz_files = list(dataset_dir.rglob("*.npz"))
         unk_id = self.tokenizer.unk_id
 
-        # Map old IDs -> new contiguous IDs
-        # self.tokenizer.vocab is a dict {token_str: old_id}
-        old_to_new = {
-            old_id: new_id
-            for new_id, old_id in enumerate(self.tokenizer.vocab.values())
-        }
+        old_vocab_items = list(self.tokenizer.vocab.items())
+        old_to_new, new_vocab = {}, {}
+        for new_id, (tok, old_id) in enumerate(old_vocab_items):
+            old_to_new[old_id] = new_id + 1
+            new_vocab[tok] = new_id + 1
+        old_to_new[self.tokenizer.unk_id] = unk_id
+        new_vocab[self.tokenizer.unk_token] = unk_id
+
+        self.tokenizer.vocab = new_vocab
+        self.tokenizer.save()
+        logging.info(
+            f"[Preprocessor] Reindexed vocab to contiguous IDs (size={len(new_vocab)})"
+        )
+        logging.info(f"[Preprocessor] Remapping tokens in {len(npz_files)} files...")
 
         remapped_files = 0
         remapped_tokens = 0
+        unk_per_file = []  # diagnostic list
+        unseen_token_ids = []  # store problematic token IDs
 
         for f in npz_files:
             data = np.load(f, allow_pickle=True)
             tokens = data["tokens"]
 
-            # Remap each token ID, fallback to unk_id
+            # collect statistics before remap
+            invalid_mask = ~np.isin(tokens, list(old_to_new.keys()))
+            if np.any(invalid_mask):
+                unseen = np.unique(tokens[invalid_mask])
+                unseen_token_ids.extend(unseen.tolist())
+                unk_per_file.append((f.name, invalid_mask.sum()))
+
+            # actual remap
             remapped = np.vectorize(
                 lambda t: old_to_new.get(t, unk_id), otypes=[np.int32]
             )(tokens)
@@ -128,7 +142,7 @@ class DrumPreprocessor:
                 remapped_tokens += n_changed
 
         logging.info(
-            f"[Remap] {remapped_files}/{len(npz_files)} files remapped | {remapped_tokens} tokens changed."
+            f"[Preprocessor] {remapped_files}/{len(npz_files)} files remapped | {remapped_tokens} tokens changed."
         )
 
     def _shuffle_and_store_samples(self, temp_dir, dataset_dir):

@@ -202,10 +202,22 @@ class BeatTokenizer:
 
         # preserve original ids
         new_vocab = {k: self.vocab[k] for k in kept_keys if k in self.vocab}
-        new_vocab[self.unk_token] = self.unk_id
-        self.vocab = new_vocab
+        # new_vocab[self.unk_token] = self.unk_id
 
-        logging.info(f"[Tokenizer] Kept {len(self.vocab)-1} tokens (+UNK).")
+        self.vocab = new_vocab
+        lowest_kept = (
+            sorted_items[len(kept_keys) - 1] if len(kept_keys) > 0 else ("None", 0)
+        )
+        highest_pruned = (
+            sorted_items[len(kept_keys)]
+            if len(kept_keys) < len(sorted_items)
+            else ("None", 0)
+        )
+        logging.info(
+            f"  Lowest kept freq: {lowest_kept[1]}, Highest pruned freq: {highest_pruned[1]}"
+        )
+
+        logging.info(f"[Tokenizer] Kept {len(self.vocab)} tokens (+UNK).")
         logging.info(f"[Tokenizer] Kept freq share: {kept_freq_share:.2f}%")
 
     def save(self):
