@@ -218,8 +218,6 @@ def train(cfg, model, device, train_set, val_set, tokenizer, checkpoint_dir):
                     tf_ratio,
                     metrics["accuracy"],
                     metrics["f1_macro"],
-                    metrics["groove_similarity"],
-                    metrics["pattern_entropy"],
                 ]
             )
 
