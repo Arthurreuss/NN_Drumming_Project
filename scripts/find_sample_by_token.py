@@ -4,7 +4,7 @@ import numpy as np
 
 from ml.data.tokenizer import BeatTokenizer
 from ml.utils.cfg import load_config
-from scripts.plotting_inference import plot_drum_matrix
+from scripts.plot_inference import plot_drum_matrix
 
 
 def find_npz_with_token(dataset_dir, target_token, tokenizer):

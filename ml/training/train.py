@@ -149,8 +149,8 @@ def train(cfg, model, device, train_set, val_set, tokenizer, checkpoint_dir):
     weights = np.clip(weights, 0, 5)
     weights = weights / weights.mean()
     weights = torch.tensor(weights, dtype=torch.float32, device=device)
-    # crit = nn.CrossEntropyLoss(weight=weights, ignore_index=tokenizer.unk_id)
-    crit = FocalLoss(weight=weights, gamma=3.0, ignore_index=tokenizer.unk_id)
+    crit = nn.CrossEntropyLoss(weight=weights, ignore_index=tokenizer.unk_id)
+    # crit = FocalLoss(weight=weights, gamma=3.0, ignore_index=tokenizer.unk_id)
 
     logging.info(f"[Loss] Class weights computed for {len(weights)} tokens.")
 

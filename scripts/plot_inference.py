@@ -26,7 +26,7 @@ def plot_drum_matrix(matrix, title="Generated Drum Pattern", save_path=None):
     ax.set_title(title)
 
     # --- add x-axis ticks every 4 steps ---
-    step = 4
+    step = 64
     timesteps = matrix.shape[0]
     ax.set_xticks(range(0, timesteps, step))
     ax.set_xticklabels(range(0, timesteps, step))

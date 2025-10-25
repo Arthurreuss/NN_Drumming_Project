@@ -3,7 +3,7 @@ import numpy as np
 from ml.data.tokenizer import BeatTokenizer
 from ml.utils import cfg
 from ml.utils.cfg import load_config
-from scripts.plotting_inference import plot_drum_matrix
+from scripts.plot_inference import plot_drum_matrix
 
 cfg = load_config()
 tokenizer = BeatTokenizer(cfg, "dataset/processed/q_16/seg_128/beat_tokenizer.npy")

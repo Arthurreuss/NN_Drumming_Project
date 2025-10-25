@@ -4,26 +4,26 @@
 
 pipeline:
   quantization: &q 16 #Options: [16, 32, 64]
-  segment_len: &seg_len 128 #len of sample (At least 4x quantization to get one bar)
+  segment_len: &seg_len 512 #len of sample (At least 4x quantization to get one bar)
   model: large    #Options : [small, medium, large]
-  create_dataset: False
-  train_model: False
+  create_dataset: True
+  train_model: True
   inference: 
     enabled: True
-    genre: reggae #Options : [afrocuban, dance, funk, hiphop, jazz, latin, neworleans, pop, reggae, rock, soul] 
-    generation_length: 128
+    genre: rock #Options : [afrocuban, dance, blues, funk, hiphop, jazz, latin, neworleans, pop, reggae, rock, soul] 
+    generation_length: 64
     period: 4 #length of one bar
-    temperature: 0.99
+    temperature: 0.8
     plot: True # saves to outputs
     create_midi: True #saves to outputs
-  evaluate: False
+  evaluate: True
 
 # ===============================
 # Dataset Configuration
 # ===============================
 
 dataset_creation:
-  token_len: 4  # number of quantized timesteps per token
+  token_len: 16  # number of quantized timesteps per token
   seed: 42
   total_target: 24000 # total number of training samples
   raw_data_dir: dataset/e-gmd-v1.0.0 # path to raw midi files
