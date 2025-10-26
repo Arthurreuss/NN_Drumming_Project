@@ -1,7 +1,6 @@
 .env
 .venv
 .vscode
-*.mp3
 *.midi
 e-gmd-v1.0.0/
 .DS_Store
