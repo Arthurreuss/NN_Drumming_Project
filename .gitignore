@@ -5,3 +5,12 @@
 *.midi
 e-gmd-v1.0.0/
 .DS_Store
+*__pycache__/
+*.mid
+*.npz
+__pycache__/
+/checkpoints
+*.npy
+/logs
+/outputs
+*tar.gz
