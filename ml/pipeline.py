@@ -15,7 +15,7 @@ from ml.data.tokenizer import BeatTokenizer
 from ml.evaluation.eval import evaluate_model
 from ml.models.lstm import Seq2SeqLSTM
 from ml.training.train import train
-from scripts.plotting_inference import plot_drum_matrix
+from scripts.plot_inference import plot_drum_matrix
 
 
 class Pipeline:
@@ -122,8 +122,8 @@ class Pipeline:
 
             genre_indices = [
                 i
-                for i, s in enumerate(self.val_set)
-                if self.val_set.genres[s["genre_id"].item()]
+                for i, s in enumerate(self.test_set)
+                if self.test_set.genres[s["genre_id"].item()]
                 == self.pipeline_cfg["inference"]["genre"]
             ]
 
@@ -136,7 +136,7 @@ class Pipeline:
             random.seed()
             idx = random.choice(genre_indices)
             random.seed(self.dataset_cfg["seed"])
-            sample = self.val_set[idx]
+            sample = self.test_set[idx]
             logging.info(
                 f"[Inference] Picked sample {idx} ({self.pipeline_cfg['inference']['genre']})"
             )
@@ -165,11 +165,12 @@ class Pipeline:
 
             if self.pipeline_cfg["inference"]["plot"]:
                 genre_idx = int(genre_id.squeeze().cpu().item())
+                os.makedirs(f"outputs/{self.pipeline_cfg['model']}", exist_ok=True)
                 plot_drum_matrix(
                     matrix,
                     title=f"Generated Drum Pattern (Genre: {self.val_set.genres[genre_idx]})",
                     save_path=(
-                        f"outputs/{self.pipeline_cfg['inference']['genre']}_{idx}.png"
+                        f"outputs/{self.pipeline_cfg['model']}/{self.pipeline_cfg['inference']['genre']}_{idx}.png"
                     ),
                 )
             if self.pipeline_cfg["inference"]["create_midi"]:
@@ -178,7 +179,7 @@ class Pipeline:
                     self.cfg,
                     matrix,
                     output_path=(
-                        f"outputs/{self.pipeline_cfg['inference']['genre']}_{idx}.mid"
+                        f"outputs/{self.pipeline_cfg['model']}/{self.pipeline_cfg['inference']['genre']}_{idx}.mid"
                     ),
                     tempo=int(bpm),
                 )

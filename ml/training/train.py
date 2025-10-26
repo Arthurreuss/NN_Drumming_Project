@@ -9,6 +9,7 @@ import torch.nn as nn
 from torch.utils.data import DataLoader
 
 from ml.evaluation.metrics import compute_eval_metrics
+from ml.training.loss import FocalLoss
 
 
 def linear_tf(epoch, epochs, tf_start, tf_end):
@@ -149,6 +150,8 @@ def train(cfg, model, device, train_set, val_set, tokenizer, checkpoint_dir):
     weights = weights / weights.mean()
     weights = torch.tensor(weights, dtype=torch.float32, device=device)
     crit = nn.CrossEntropyLoss(weight=weights, ignore_index=tokenizer.unk_id)
+    # crit = FocalLoss(weight=weights, gamma=3.0, ignore_index=tokenizer.unk_id)
+
     logging.info(f"[Loss] Class weights computed for {len(weights)} tokens.")
 
     best = math.inf
@@ -215,8 +218,6 @@ def train(cfg, model, device, train_set, val_set, tokenizer, checkpoint_dir):
                     tf_ratio,
                     metrics["accuracy"],
                     metrics["f1_macro"],
-                    metrics["groove_similarity"],
-                    metrics["pattern_entropy"],
                 ]
             )
 
